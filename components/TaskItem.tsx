@@ -1,0 +1,263 @@
+import React from 'react';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Task } from '@/types/task';
+import { Colors } from '@/constants/colors';
+import { useSettingsStore } from '@/store/settings-store';
+import { useUsersStore } from '@/store/users-store';
+import { useResourcesStore } from '@/store/resources-store';
+import { 
+  Clock, 
+  CheckCircle, 
+  AlertCircle, 
+  XCircle,
+  Calendar,
+  Flag
+} from 'lucide-react-native';
+
+interface TaskItemProps {
+  task: Task;
+  onPress: () => void;
+}
+
+export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress }) => {
+  const { darkMode } = useSettingsStore();
+  const { getUserById } = useUsersStore();
+  const { getCategoryById } = useResourcesStore();
+  const theme = darkMode ? Colors.dark : Colors.light;
+  
+  const category = task.categoryId ? getCategoryById(task.categoryId) : null;
+  const creator = task.assignedBy ? getUserById(task.assignedBy) : null;
+  
+  const getStatusIcon = () => {
+    switch (task.status) {
+      case 'pending':
+        return <Clock size={20} color={theme.warning} />;
+      case 'in_progress':
+        return <AlertCircle size={20} color={theme.info} />;
+      case 'completed':
+        return <CheckCircle size={20} color={theme.success} />;
+      case 'validated':
+        return <CheckCircle size={20} color={theme.success} />;
+      default:
+        return <Clock size={20} color={theme.warning} />;
+    }
+  };
+  
+  const getStatusText = () => {
+    switch (task.status) {
+      case 'pending':
+        return 'En attente';
+      case 'in_progress':
+        return 'En cours';
+      case 'completed':
+        return task.needsValidation ? 'À valider' : 'Terminée';
+      case 'validated':
+        return 'Validée';
+      default:
+        return 'En attente';
+    }
+  };
+  
+  const getStatusColor = () => {
+    switch (task.status) {
+      case 'pending':
+        return theme.warning;
+      case 'in_progress':
+        return theme.info;
+      case 'completed':
+        return theme.success;
+      case 'validated':
+        return theme.success;
+      default:
+        return theme.warning;
+    }
+  };
+  
+  const getPriorityColor = () => {
+    switch (task.priority) {
+      case 'high':
+        return theme.error;
+      case 'medium':
+        return theme.warning;
+      case 'low':
+        return theme.info;
+      default:
+        return theme.info;
+    }
+  };
+  
+  const getPriorityText = () => {
+    switch (task.priority) {
+      case 'high':
+        return 'Haute';
+      case 'medium':
+        return 'Moyenne';
+      case 'low':
+        return 'Basse';
+      default:
+        return 'Moyenne';
+    }
+  };
+  
+  const isOverdue = () => {
+    if (!task.deadline) return false;
+    if (task.status === 'completed' || task.status === 'validated') return false;
+    
+    const deadlineDate = new Date(task.deadline);
+    const now = new Date();
+    
+    return deadlineDate < now;
+  };
+  
+  const formatDeadline = () => {
+    if (!task.deadline) return 'Pas de date limite';
+    
+    const deadlineDate = new Date(task.deadline);
+    const now = new Date();
+    const diffTime = deadlineDate.getTime() - now.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) {
+      return `En retard de ${Math.abs(diffDays)} jour${Math.abs(diffDays) > 1 ? 's' : ''}`;
+    } else if (diffDays === 0) {
+      return 'Aujourd\'hui';
+    } else if (diffDays === 1) {
+      return 'Demain';
+    } else {
+      return `Dans ${diffDays} jours`;
+    }
+  };
+  
+  return (
+    <TouchableOpacity
+      style={[
+        styles.container,
+        { 
+          backgroundColor: theme.card,
+          borderLeftColor: getPriorityColor(),
+          borderLeftWidth: 4,
+        }
+      ]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={styles.header}>
+        <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
+          {task.title}
+        </Text>
+        <View style={[
+          styles.statusBadge, 
+          { backgroundColor: `${getStatusColor()}20` }
+        ]}>
+          {getStatusIcon()}
+          <Text style={[styles.statusText, { color: getStatusColor() }]}>
+            {getStatusText()}
+          </Text>
+        </View>
+      </View>
+      
+      <Text 
+        style={[styles.description, { color: darkMode ? theme.inactive : '#666666' }]}
+        numberOfLines={2}
+      >
+        {task.description}
+      </Text>
+      
+      <View style={styles.footer}>
+        <View style={styles.metaItem}>
+          <Flag size={14} color={getPriorityColor()} style={styles.metaIcon} />
+          <Text style={[styles.metaText, { color: darkMode ? theme.inactive : '#666666' }]}>
+            {getPriorityText()}
+          </Text>
+        </View>
+        
+        {task.deadline && (
+          <View style={styles.metaItem}>
+            <Calendar size={14} color={isOverdue() ? theme.error : (darkMode ? theme.inactive : '#666666')} style={styles.metaIcon} />
+            <Text 
+              style={[
+                styles.metaText, 
+                { 
+                  color: isOverdue() 
+                    ? theme.error 
+                    : (darkMode ? theme.inactive : '#666666') 
+                }
+              ]}
+            >
+              {formatDeadline()}
+            </Text>
+          </View>
+        )}
+        
+        {category && (
+          <View style={styles.metaItem}>
+            <Text style={[styles.categoryText, { color: darkMode ? theme.inactive : '#666666' }]}>
+              {category.icon && <Text>{category.icon}</Text>} {category.name}
+            </Text>
+          </View>
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+};
+
+const styles = StyleSheet.create({
+  container: {
+    borderRadius: 8,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: '600',
+    flex: 1,
+    marginRight: 8,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '500',
+    marginLeft: 4,
+  },
+  description: {
+    fontSize: 14,
+    marginBottom: 12,
+  },
+  footer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 12,
+    marginBottom: 4,
+  },
+  metaIcon: {
+    marginRight: 4,
+  },
+  metaText: {
+    fontSize: 12,
+  },
+  categoryText: {
+    fontSize: 12,
+  },
+});

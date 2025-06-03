@@ -1,284 +1,303 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  StyleSheet, 
   View, 
   Text, 
+  StyleSheet, 
   ScrollView, 
-  TouchableOpacity,
+  TouchableOpacity, 
   RefreshControl,
-  Dimensions,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { 
-  CheckSquare,
-  Calendar,
-  Users,
-  BookOpen,
-  Link,
+  Plus, 
+  CheckSquare, 
+  Calendar, 
+  Users, 
   Bell,
+  BookOpen,
+  TrendingUp,
   Clock,
-  Sparkles,
-  ChevronRight,
+  AlertCircle,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
-import { useSettingsStore } from '@/store/settings-store';
-import { useNotificationsStore } from '@/store/notifications-store';
 import { useTasksStore } from '@/store/tasks-store';
 import { useCalendarStore } from '@/store/calendar-store';
+import { useUsersStore } from '@/store/users-store';
+import { useNotificationsStore } from '@/store/notifications-store';
+import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
-import { Card } from '@/components/Card';
 import { AppLayout } from '@/components/AppLayout';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Header } from '@/components/Header';
-import { UserRole } from '@/types/user';
-
-const { width } = Dimensions.get('window');
+import { Card } from '@/components/Card';
+import { TaskItem } from '@/components/TaskItem';
+import { EmptyState } from '@/components/EmptyState';
+import { Badge } from '@/components/Badge';
 
 export default function HomeScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { darkMode, welcomeMessage } = useSettingsStore();
-  const { getUnreadCount } = useNotificationsStore();
-  const { getOverdueTasks, getUpcomingDeadlines } = useTasksStore();
-  const { getUpcomingEvents } = useCalendarStore();
-  
+  const { tasks, getTasksByUser, getOverdueTasks, initializeTasks } = useTasksStore();
+  const { events, getUpcomingEvents, initializeEvents } = useCalendarStore();
+  const { users, initializeUsers } = useUsersStore();
+  const { getUnreadCount, initializeNotifications } = useNotificationsStore();
+  const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const appColors = useAppColors();
-  const [refreshing, setRefreshing] = useState(false);
+  
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
-  
-  // Get user tasks and events
-  const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
-  const upcomingTasks = user ? getUpcomingDeadlines(7).filter(task => task.assignedTo.includes(user.id)) : [];
-  const upcomingEvents = user ? getUpcomingEvents(3) : [];
-  
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    // In a real app, you would fetch fresh data here
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+  const [refreshing, setRefreshing] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    loadData();
   }, []);
-  
-  const navigateTo = (path: string) => {
-    router.push(path);
-  };
-  
-  const formatDate = (date: Date) => {
-    return date.toLocaleDateString('fr-FR', {
-      day: 'numeric',
-      month: 'short',
-    });
-  };
-  
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Bonjour';
-    if (hour < 18) return 'Bon après-midi';
-    return 'Bonsoir';
+
+  const loadData = async () => {
+    try {
+      await Promise.all([
+        initializeTasks(),
+        initializeEvents(),
+        initializeUsers(),
+        initializeNotifications(),
+      ]);
+    } catch (error) {
+      console.error('Error loading data:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors du chargement des données.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // Check if user has a name to display
-  const hasName = user?.firstName || user?.lastName;
-  const userName = hasName ? 
-    `${user?.firstName || ''} ${user?.lastName || ''}`.trim() : 
-    '';
-  
-  // Quick access items
-  const quickAccessItems = [
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await loadData();
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors du rafraîchissement des données.');
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const handleTaskPress = (taskId: string) => {
+    router.push(`/tasks/${taskId}`);
+  };
+
+  const handleEventPress = (eventId: string) => {
+    router.push(`/calendar/event-detail/${eventId}`);
+  };
+
+  // Get user-specific data
+  const userTasks = user ? getTasksByUser(user.id) : [];
+  const pendingTasks = userTasks.filter(task => task.status === 'pending');
+  const inProgressTasks = userTasks.filter(task => task.status === 'in_progress');
+  const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
+  const upcomingEvents = getUpcomingEvents(3);
+  const unreadNotifications = getUnreadCount();
+
+  const quickActions = [
     {
-      id: '1',
-      title: 'Mes tâches',
-      icon: <CheckSquare size={24} color="#ffffff" />,
-      path: '/(tabs)/tasks',
-      color: ['#4c6ef5', '#3b5bdb'] as [string, string],
-      count: upcomingTasks.length,
+      title: 'Nouvelle tâche',
+      icon: <Plus size={20} color="#ffffff" />,
+      color: appColors.primary,
+      onPress: () => router.push('/tasks/create'),
     },
     {
-      id: '2',
-      title: 'Calendrier',
-      icon: <Calendar size={24} color="#ffffff" />,
-      path: '/(tabs)/calendar',
-      color: ['#f76707', '#e8590c'] as [string, string],
-      count: upcomingEvents.length,
+      title: 'Nouvel événement',
+      icon: <Calendar size={20} color="#ffffff" />,
+      color: '#f59f00',
+      onPress: () => router.push('/calendar/event-form'),
     },
     {
-      id: '3',
       title: 'Annuaire',
-      icon: <Users size={24} color="#ffffff" />,
-      path: '/(tabs)/directory',
-      color: ['#1098ad', '#0c8599'] as [string, string],
-      count: null,
+      icon: <Users size={20} color="#ffffff" />,
+      color: '#51cf66',
+      onPress: () => router.push('/(tabs)/directory'),
     },
     {
-      id: '4',
       title: 'La Bible',
-      icon: <BookOpen size={24} color="#ffffff" />,
-      path: '/(tabs)/resources',
-      color: ['#ae3ec9', '#9c36b5'] as [string, string],
-      count: null,
-    },
-    {
-      id: '5',
-      title: 'Liens',
-      icon: <Link size={24} color="#ffffff" />,
-      path: '/(tabs)/links',
-      color: ['#37b24d', '#2f9e44'] as [string, string],
-      count: null,
-    },
-    {
-      id: '6',
-      title: 'Notifications',
-      icon: <Bell size={24} color="#ffffff" />,
-      path: '/(tabs)/notifications',
-      color: ['#f03e3e', '#e03131'] as [string, string],
-      count: getUnreadCount(),
+      icon: <BookOpen size={20} color="#ffffff" />,
+      color: '#845ef7',
+      onPress: () => router.push('/(tabs)/resources'),
     },
   ];
-  
+
+  const stats = [
+    {
+      title: 'Tâches en attente',
+      value: pendingTasks.length,
+      icon: <Clock size={20} color={appColors.primary} />,
+      color: appColors.primary,
+    },
+    {
+      title: 'Tâches en cours',
+      value: inProgressTasks.length,
+      icon: <CheckSquare size={20} color="#f59f00" />,
+      color: '#f59f00',
+    },
+    {
+      title: 'Tâches en retard',
+      value: overdueTasks.length,
+      icon: <AlertCircle size={20} color="#e03131" />,
+      color: '#e03131',
+    },
+    {
+      title: 'Notifications',
+      value: unreadNotifications,
+      icon: <Bell size={20} color="#845ef7" />,
+      color: '#845ef7',
+    },
+  ];
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('fr-FR', {
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const formatDate = (date: Date) => {
+    return date.toLocaleDateString('fr-FR', {
+      weekday: 'short',
+      month: 'short',
+      day: 'numeric',
+    });
+  };
+
+  if (isLoading && !refreshing) {
+    return (
+      <AppLayout
+        hideMenuButton={true}
+        onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
+      >
+        <View style={[styles.container, { backgroundColor: theme.background }]}>
+          <Header
+            title="Accueil 🏠"
+            onTitlePress={() => toggleSidebar?.()}
+          />
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={appColors.primary} />
+            <Text style={[styles.loadingText, { color: theme.text }]}>
+              Chargement...
+            </Text>
+          </View>
+        </View>
+      </AppLayout>
+    );
+  }
+
   return (
-    <AppLayout 
+    <AppLayout
       hideMenuButton={true}
       onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <Header
-          title={getGreeting() + " 👋"}
-          titleStyle={styles.greeting}
-          onTitlePress={() => toggleSidebar && toggleSidebar()}
-          rightComponent={
-            getUnreadCount() > 0 ? (
-              <View style={styles.notificationBadge}>
-                <View style={[styles.badge, { backgroundColor: theme.notification }]}>
-                  <Text style={styles.badgeText}>{getUnreadCount()}</Text>
-                </View>
-              </View>
-            ) : undefined
-          }
-          containerStyle={styles.headerContainer}
+          title="Accueil 🏠"
+          onTitlePress={() => toggleSidebar?.()}
         />
-        
-        {userName ? (
-          <Text style={[styles.userName, { color: theme.text, marginLeft: 24 }]}>
-            {userName}
-          </Text>
-        ) : null}
-        
+
         <ScrollView
-          style={styles.scrollView}
+          style={styles.content}
           contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              colors={[appColors.primary]}
+              tintColor={appColors.primary}
+            />
           }
+          showsVerticalScrollIndicator={false}
         >
-          {/* Welcome Card */}
+          {/* Welcome Message */}
           <Card style={styles.welcomeCard}>
-            <View style={styles.welcomeContent}>
-              <Sparkles size={24} color={appColors.primary} style={styles.welcomeIcon} />
-              <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                {welcomeMessage}
-              </Text>
-              <Text style={[styles.welcomeText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Accédez rapidement à toutes les fonctionnalités de l'application.
-              </Text>
-            </View>
-          </Card>
-          
-          {/* Quick Access Grid */}
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: theme.text, textAlign: 'center' }]}>
-              Accès rapides
+            <Text style={[styles.welcomeTitle, { color: theme.text }]}>
+              Bonjour {user?.firstName || 'Utilisateur'} ! 👋
             </Text>
-          </View>
-          
-          <View style={styles.gridContainer}>
-            {quickAccessItems.map((item) => (
-              <TouchableOpacity
-                key={item.id}
-                style={styles.quickAccessItem}
-                onPress={() => navigateTo(item.path)}
-              >
-                <LinearGradient
-                  colors={item.color}
-                  style={styles.quickAccessCard}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                >
-                  <View style={styles.quickAccessContent}>
-                    {item.icon}
-                    <Text style={styles.quickAccessTitle}>{item.title}</Text>
-                    
-                    {item.count !== null && item.count > 0 && (
-                      <View style={styles.quickAccessBadge}>
-                        <Text style={styles.quickAccessBadgeText}>{item.count}</Text>
-                      </View>
-                    )}
-                  </View>
-                </LinearGradient>
-              </TouchableOpacity>
+            <Text style={[styles.welcomeSubtitle, { color: theme.inactive }]}>
+              Voici un aperçu de votre journée
+            </Text>
+          </Card>
+
+          {/* Stats */}
+          <View style={styles.statsContainer}>
+            {stats.map((stat, index) => (
+              <Card key={index} style={styles.statCard}>
+                <View style={styles.statHeader}>
+                  {stat.icon}
+                  <Text style={[styles.statValue, { color: stat.color }]}>
+                    {stat.value}
+                  </Text>
+                </View>
+                <Text style={[styles.statTitle, { color: theme.inactive }]}>
+                  {stat.title}
+                </Text>
+              </Card>
             ))}
           </View>
-          
-          {/* Upcoming Tasks */}
+
+          {/* Quick Actions */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Actions rapides
+            </Text>
+            <View style={styles.quickActionsContainer}>
+              {quickActions.map((action, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={[styles.quickActionButton, { backgroundColor: action.color }]}
+                  onPress={action.onPress}
+                >
+                  {action.icon}
+                  <Text style={styles.quickActionText}>
+                    {action.title}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Recent Tasks */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                Tâches à venir
+                Mes tâches récentes
               </Text>
-              <TouchableOpacity onPress={() => navigateTo('/(tabs)/tasks')}>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/tasks')}>
                 <Text style={[styles.seeAllText, { color: appColors.primary }]}>
                   Voir tout
                 </Text>
               </TouchableOpacity>
             </View>
             
-            {upcomingTasks.length > 0 ? (
-              upcomingTasks.slice(0, 3).map((task) => (
-                <TouchableOpacity
+            {pendingTasks.length > 0 ? (
+              pendingTasks.slice(0, 3).map((task) => (
+                <TaskItem
                   key={task.id}
-                  style={[styles.taskItem, { backgroundColor: theme.card }]}
-                  onPress={() => navigateTo('/(tabs)/tasks')}
-                >
-                  <View style={[styles.taskStatus, { 
-                    backgroundColor: task.status === 'pending' ? '#f59f00' : 
-                                    task.status === 'in_progress' ? '#4c6ef5' : 
-                                    task.status === 'completed' ? '#37b24d' : 
-                                    '#e03131'
-                  }]} />
-                  
-                  <View style={styles.taskContent}>
-                    <Text style={[styles.taskTitle, { color: theme.text }]}>
-                      {task.title}
-                    </Text>
-                    
-                    <View style={styles.taskMeta}>
-                      <View style={styles.taskMetaItem}>
-                        <Clock size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.taskMetaIcon} />
-                        <Text style={[styles.taskMetaText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                          Échéance: {formatDate(new Date(task.dueDate || task.deadline || ''))}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                  
-                  <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
-                </TouchableOpacity>
+                  task={task}
+                  onPress={() => handleTaskPress(task.id)}
+                />
               ))
             ) : (
-              <Text style={[styles.emptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Vous n'avez pas de tâches à venir.
-              </Text>
+              <EmptyState
+                icon="check-square"
+                title="Aucune tâche en attente"
+                message="Vous n'avez pas de tâches en attente pour le moment."
+              />
             )}
           </View>
-          
+
           {/* Upcoming Events */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Événements à venir
               </Text>
-              <TouchableOpacity onPress={() => navigateTo('/(tabs)/calendar')}>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/calendar')}>
                 <Text style={[styles.seeAllText, { color: appColors.primary }]}>
                   Voir tout
                 </Text>
@@ -290,14 +309,14 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={event.id}
                   style={[styles.eventItem, { backgroundColor: theme.card }]}
-                  onPress={() => router.push(`/calendar/event-detail/${event.id}`)}
+                  onPress={() => handleEventPress(event.id)}
                 >
                   <View style={styles.eventDate}>
                     <Text style={[styles.eventDay, { color: theme.text }]}>
                       {new Date(event.startTime).getDate()}
                     </Text>
-                    <Text style={[styles.eventMonth, { color: darkMode ? theme.inactive : '#666666' }]}>
-                      {new Date(event.startTime).toLocaleDateString('fr-FR', { month: 'short' })}
+                    <Text style={[styles.eventMonth, { color: theme.inactive }]}>
+                      {formatDate(new Date(event.startTime)).split(' ')[1]}
                     </Text>
                   </View>
                   
@@ -307,24 +326,18 @@ export default function HomeScreen() {
                     <Text style={[styles.eventTitle, { color: theme.text }]}>
                       {event.title}
                     </Text>
-                    
-                    <View style={styles.eventMeta}>
-                      <View style={styles.eventMetaItem}>
-                        <Clock size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventMetaIcon} />
-                        <Text style={[styles.eventMetaText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                          {new Date(event.startTime).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                      </View>
-                    </View>
+                    <Text style={[styles.eventTime, { color: theme.inactive }]}>
+                      {formatTime(new Date(event.startTime))} - {formatTime(new Date(event.endTime))}
+                    </Text>
                   </View>
-                  
-                  <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
                 </TouchableOpacity>
               ))
             ) : (
-              <Text style={[styles.emptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Il n'y a pas d'événements à venir.
-              </Text>
+              <EmptyState
+                icon="calendar"
+                title="Aucun événement à venir"
+                message="Vous n'avez pas d'événements prévus dans les prochains jours."
+              />
             )}
           </View>
         </ScrollView>
@@ -337,179 +350,107 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  headerContainer: {
-    marginTop: -8, // Reduce top space
-  },
-  greeting: {
-    fontSize: 20,
-    fontWeight: '600',
-  },
-  userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    marginTop: -4, // Reduce space between greeting and username
-  },
-  notificationBadge: {
-    position: 'relative',
-    width: 24,
-    height: 24,
-  },
-  badge: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    minWidth: 18,
-    height: 18,
-    borderRadius: 9,
-    alignItems: 'center',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
-    paddingHorizontal: 4,
+    alignItems: 'center',
   },
-  badgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
+  loadingText: {
+    fontSize: 16,
+    marginTop: 16,
+    textAlign: 'center',
   },
-  scrollView: {
+  content: {
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-    paddingTop: 0, // Reduce top padding
+    padding: 16,
   },
   welcomeCard: {
     marginBottom: 24,
-    marginTop: 0, // Reduce top margin
-  },
-  welcomeContent: {
-    alignItems: 'center',
-    padding: 16,
-  },
-  welcomeIcon: {
-    marginBottom: 12,
+    padding: 20,
   },
   welcomeTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 4,
   },
-  welcomeText: {
-    fontSize: 14,
-    textAlign: 'center',
+  welcomeSubtitle: {
+    fontSize: 16,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+    marginBottom: 24,
+  },
+  statCard: {
+    flex: 1,
+    minWidth: '45%',
+    padding: 16,
+  },
+  statHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  statTitle: {
+    fontSize: 12,
+    textTransform: 'uppercase',
+  },
+  section: {
+    marginBottom: 24,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
-    marginTop: 8,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
   },
-  gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-  },
-  quickAccessItem: {
-    width: (width - 60) / 2, // Account for padding and gap
-    height: 100,
-    marginBottom: 20, // Increased from 10 to 20 for more spacing between rows
-  },
-  quickAccessCard: {
-    borderRadius: 12,
-    flex: 1,
-    padding: 16,
-    justifyContent: 'center',
-  },
-  quickAccessContent: {
-    position: 'relative',
-  },
-  quickAccessTitle: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: '600',
-    marginTop: 8,
-  },
-  quickAccessBadge: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 12,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-  },
-  quickAccessBadgeText: {
-    color: '#ffffff',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  section: {
-    marginBottom: 24,
-  },
   seeAllText: {
     fontSize: 14,
     fontWeight: '500',
   },
-  taskItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-  },
-  taskStatus: {
-    width: 4,
-    height: '80%',
-    borderRadius: 2,
-    marginRight: 12,
-  },
-  taskContent: {
-    flex: 1,
-  },
-  taskTitle: {
-    fontSize: 16,
-    fontWeight: '500',
-    marginBottom: 4,
-  },
-  taskMeta: {
+  quickActionsContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
+    gap: 12,
   },
-  taskMetaItem: {
+  quickActionButton: {
+    flex: 1,
+    minWidth: '45%',
     flexDirection: 'row',
     alignItems: 'center',
-    marginRight: 16,
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    gap: 8,
   },
-  taskMetaIcon: {
-    marginRight: 4,
-  },
-  taskMetaText: {
-    fontSize: 12,
-  },
-  emptyText: {
+  quickActionText: {
+    color: '#ffffff',
     fontSize: 14,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    marginVertical: 12,
+    fontWeight: '500',
   },
   eventItem: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 12,
-    padding: 12,
+    padding: 16,
     marginBottom: 12,
   },
   eventDate: {
     alignItems: 'center',
     width: 40,
+    marginRight: 12,
   },
   eventDay: {
     fontSize: 18,
@@ -522,7 +463,7 @@ const styles = StyleSheet.create({
   eventSeparator: {
     width: 2,
     height: '80%',
-    marginHorizontal: 12,
+    marginRight: 12,
   },
   eventContent: {
     flex: 1,
@@ -532,19 +473,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 4,
   },
-  eventMeta: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-  },
-  eventMetaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  eventMetaIcon: {
-    marginRight: 4,
-  },
-  eventMetaText: {
-    fontSize: 12,
+  eventTime: {
+    fontSize: 14,
   },
 });

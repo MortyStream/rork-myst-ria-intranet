@@ -47,7 +47,7 @@ export default function ResourcesScreen() {
         <Header
           title="La Bible 📚"
           noLeftMargin
-          onTitlePress={() => toggleSidebar?.()}
+          onTitlePress={toggleSidebar || undefined}
         />
 
         <View style={[styles.header, { backgroundColor: theme.card }]}>

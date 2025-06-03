@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Slot, Stack, Tabs, useRouter, useSegments } from 'expo-router';
+import { Slot, Stack, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -8,6 +8,7 @@ import { Colors } from '@/constants/colors';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { View, StyleSheet } from 'react-native';
 import Toast from 'react-native-toast-message';
+// Import the URL polyfill at the app root level
 import 'react-native-url-polyfill/auto';
 
 export default function RootLayout() {
@@ -21,7 +22,10 @@ export default function RootLayout() {
   useEffect(() => {
     const initApp = async () => {
       try {
+        // Initialize auth
         await initializeAuth();
+        
+        // Wait a bit to show splash screen
         setTimeout(() => {
           setIsLoading(false);
         }, 1000);
@@ -41,9 +45,12 @@ export default function RootLayout() {
     const inAuthGroup = segments[0] === '(auth)';
     const isLoginScreen = segments[0] === 'login' || segments[0] === 'forgot-password';
     
+    // If user is not authenticated and not on login screen, redirect to login
     if (!isAuthenticated && !isLoginScreen) {
+      // Check if there's a valid session first
       checkSession().then(hasSession => {
         if (hasSession) {
+          // If there's a session but user is not authenticated, try to refresh
           refreshSession().then(refreshed => {
             if (!refreshed) {
               router.replace('/login');
@@ -55,20 +62,17 @@ export default function RootLayout() {
       });
     }
     
+    // If user is authenticated and on login screen, redirect to home
     if (isAuthenticated && isLoginScreen) {
-      router.replace('/home');
-    }
-
-    // Redirect to home if at root
-    if (isAuthenticated && segments.length === 0) {
-      router.replace('/home');
+      router.replace('/');
     }
   }, [isAuthenticated, segments, isLoading]);
   
+  // Show splash screen while loading
   if (isLoading) {
     return <SplashScreen />;
   }
-
+  
   return (
     <GestureHandlerRootView style={styles.container}>
       <StatusBar style={darkMode ? 'light' : 'dark'} />
@@ -80,22 +84,7 @@ export default function RootLayout() {
               backgroundColor: darkMode ? Colors.dark.background : Colors.light.background,
             },
           }}
-          initialRouteName="home"
-        >
-          <Stack.Screen name="home" options={{ headerShown: false }} />
-          <Stack.Screen name="directory" options={{ headerShown: false }} />
-          <Stack.Screen name="resources" options={{ headerShown: false }} />
-          <Stack.Screen name="calendar" options={{ headerShown: false }} />
-          <Stack.Screen name="tasks" options={{ headerShown: false }} />
-          <Stack.Screen name="notifications" options={{ headerShown: false }} />
-          <Stack.Screen name="settings" options={{ headerShown: false }} />
-          <Stack.Screen name="user/[id]" options={{ headerShown: false }} />
-          <Stack.Screen name="resources/[id]" options={{ headerShown: false }} />
-          <Stack.Screen name="admin" options={{ headerShown: false }} />
-          <Stack.Screen name="profile" options={{ headerShown: false }} />
-          <Stack.Screen name="login" options={{ headerShown: false }} />
-          <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
-        </Stack>
+        />
       </View>
       <Toast />
     </GestureHandlerRootView>

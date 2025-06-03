@@ -1,83 +1,102 @@
 import React from 'react';
-import { StyleSheet, View, TouchableOpacity, Text } from 'react-native';
-import { Avatar } from './Avatar';
-import { useSettingsStore } from '@/store/settings-store';
-import { Colors } from '@/constants/colors';
+import { View, Text, StyleSheet, TouchableOpacity, ViewStyle } from 'react-native';
 import { User } from '@/types/user';
+import { Avatar } from './Avatar';
+import { Badge } from './Badge';
+import { Colors } from '@/constants/colors';
+import { useSettingsStore } from '@/store/settings-store';
+import { useAuthStore } from '@/store/auth-store';
+import { Edit } from 'lucide-react-native';
 
 interface UserGridItemProps {
   user: User;
-  onPress: () => void;
-  size: number;
-  style?: object;
-  showRoleBadge?: boolean;
+  onPress?: () => void;
+  size?: number;
+  style?: ViewStyle;
 }
 
 export const UserGridItem: React.FC<UserGridItemProps> = ({
   user,
   onPress,
-  size,
+  size = 100,
   style,
-  showRoleBadge = false,
 }) => {
   const { darkMode } = useSettingsStore();
+  const { user: currentUser } = useAuthStore();
   const theme = darkMode ? Colors.dark : Colors.light;
-
-  const getRoleBadgeColor = (role: string) => {
-    switch (role.toLowerCase()) {
+  
+  // Check if this profile is editable by the current user
+  const isEditable = currentUser && (
+    user.editable_by === currentUser.id || 
+    user.supabaseUserId === currentUser.id
+  );
+  
+  const getRoleBadgeVariant = (role: string): 'primary' | 'secondary' | 'info' | 'success' | 'warning' => {
+    switch (role) {
       case 'admin':
-        return '#e03131';
-      case 'moderator':
-        return '#4c6ef5';
-      case 'member':
-        return '#37b24d';
+        return 'primary';
+      case 'committee':
+        return 'secondary';
+      case 'actor':
+        return 'info';
+      case 'partner':
+        return 'warning';
       default:
-        return '#868e96';
+        return 'info';
     }
   };
-
-  const getRoleLabel = (role: string) => {
-    switch (role.toLowerCase()) {
+  
+  const getRoleLabel = (role: string): string => {
+    switch (role) {
       case 'admin':
         return 'Admin';
-      case 'moderator':
-        return 'Mod';
-      case 'member':
-        return 'Membre';
+      case 'committee':
+        return 'Comité';
+      case 'actor':
+        return 'Comédien';
+      case 'partner':
+        return 'Partenaire';
       default:
-        return role;
+        return 'Membre';
     }
   };
-
+  
+  const avatarSize = size * 0.7;
+  
   return (
     <TouchableOpacity
       style={[
         styles.container,
-        { width: size },
+        { width: size, height: size + 40 },
         style
       ]}
       onPress={onPress}
+      activeOpacity={0.7}
+      disabled={!onPress}
     >
       <View style={styles.avatarContainer}>
         <Avatar
-          uri={user.avatar}
-          size={size - 16}
+          source={user.avatarUrl ? { uri: user.avatarUrl } : undefined}
           name={`${user.firstName} ${user.lastName}`}
+          size={avatarSize}
         />
-        {showRoleBadge && (
-          <View style={[
-            styles.roleBadge,
-            { backgroundColor: getRoleBadgeColor(user.role) }
-          ]}>
-            <Text style={styles.roleBadgeText}>
-              {getRoleLabel(user.role)}
-            </Text>
+        {isEditable && (
+          <View style={[styles.editBadge, { backgroundColor: theme.primary }]}>
+            <Edit size={8} color="#FFFFFF" />
           </View>
         )}
+        <View style={styles.roleBadgeContainer}>
+          <Badge
+            label={getRoleLabel(user.role)}
+            variant={getRoleBadgeVariant(user.role)}
+            size="small"
+          />
+        </View>
       </View>
       <Text 
         style={[styles.name, { color: theme.text }]}
-        numberOfLines={1}
+        numberOfLines={2}
+        ellipsizeMode="tail"
       >
         {user.firstName} {user.lastName}
       </Text>
@@ -88,28 +107,34 @@ export const UserGridItem: React.FC<UserGridItemProps> = ({
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
+    justifyContent: 'flex-start',
   },
   avatarContainer: {
     position: 'relative',
+    alignItems: 'center',
     marginBottom: 8,
   },
-  roleBadge: {
+  editBadge: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-    backgroundColor: '#4c6ef5',
+    bottom: 8,
+    right: 8,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
-  roleBadgeText: {
-    color: '#ffffff',
-    fontSize: 10,
-    fontWeight: '600',
+  roleBadgeContainer: {
+    position: 'absolute',
+    top: -8,
+    alignItems: 'center',
   },
   name: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
+    lineHeight: 16,
   },
 });

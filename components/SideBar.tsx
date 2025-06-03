@@ -159,42 +159,42 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
   const menuItems = [
     {
       name: 'Accueil',
-      path: '/home',
+      path: '/(tabs)',
       icon: (isActive: boolean) => <Home size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Mes tâches',
-      path: '/tasks',
+      path: '/(tabs)/tasks',
       icon: (isActive: boolean) => <CheckSquare size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Calendrier',
-      path: '/calendar',
+      path: '/(tabs)/calendar',
       icon: (isActive: boolean) => <Calendar size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Annuaire',
-      path: '/directory',
+      path: '/(tabs)/directory',
       icon: (isActive: boolean) => <Users size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'La Bible',
-      path: '/resources',
+      path: '/(tabs)/resources',
       icon: (isActive: boolean) => <BookOpen size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Liens',
-      path: '/links',
+      path: '/(tabs)/links',
       icon: (isActive: boolean) => <Link size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Notifications',
-      path: '/notifications',
+      path: '/(tabs)/notifications',
       icon: (isActive: boolean) => <Bell size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Réglages',
-      path: '/settings',
+      path: '/(tabs)/settings',
       icon: (isActive: boolean) => <Settings size={24} color={isActive ? appColors.primary : theme.text} />
     }
   ];
@@ -202,7 +202,7 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
   // Check if the current path is a subpath of a menu item
   const isSubPathOf = (menuPath: string, currentPath: string) => {
     // Special case for settings subpaths
-    if (menuPath === '/settings' && 
+    if (menuPath === '/(tabs)/settings' && 
         (pathname.startsWith('/settings') || 
          pathname === '/profile/edit' || 
          pathname === '/profile/change-password')) {
@@ -210,12 +210,22 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
     }
     
     // Special case for admin panel
-    if (menuPath === '/settings' && pathname.startsWith('/admin')) {
+    if (menuPath === '/(tabs)/settings' && pathname.startsWith('/admin')) {
       return true;
     }
     
-    // General case
-    return currentPath.startsWith(menuPath) && currentPath !== menuPath;
+    // General case for tabs
+    if (menuPath.startsWith('/(tabs)/')) {
+      const tabName = menuPath.replace('/(tabs)/', '');
+      return currentPath === `/(tabs)/${tabName}` || currentPath.startsWith(`/(tabs)/${tabName}/`);
+    }
+    
+    // Special case for home tab
+    if (menuPath === '/(tabs)' && (currentPath === '/(tabs)' || currentPath === '/(tabs)/index')) {
+      return true;
+    }
+    
+    return currentPath === menuPath;
   };
 
   return (

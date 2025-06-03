@@ -2,7 +2,7 @@ import React from 'react';
 import {StyleSheet,View,Text,ScrollView,TouchableOpacity,Linking,Platform,Alert} from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Phone, Mail, Edit, Crown, Star, Users } from 'lucide-react-native';
+import { Phone, Mail, Edit, Crown, Star, Users, ArrowLeft } from 'lucide-react-native';
 import { useUsersStore } from '@/store/users-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -27,7 +27,11 @@ export default function UserProfileScreen() {
     return(
       <AppLayout hideMenuButton={true}>
         <SafeAreaView style={[styles.container,{backgroundColor:theme.background}]} edges={['top']}>
-          <Header title="Profil" showBackButton={true} onBackPress={()=>router.back()}/>
+          <Header 
+            title="Profil" 
+            showBackButton={true} 
+            onBackPress={() => router.back()}
+          />
           <View style={styles.notFoundContainer}>
             <Text style={[styles.notFoundText,{color:theme.text}]}>Utilisateur non trouvé</Text>
           </View>
@@ -124,7 +128,7 @@ export default function UserProfileScreen() {
         <Header
           title="Profil"
           showBackButton={true}
-          onBackPress={()=>router.back()}
+          onBackPress={() => router.back()}
           rightComponent={
             canEditProfile() ?(
               <TouchableOpacity onPress={handleEditProfile} style={styles.editButton}>

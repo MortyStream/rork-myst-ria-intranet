@@ -90,7 +90,7 @@ export default function HomeScreen() {
       id: '1',
       title: 'Mes tâches',
       icon: <CheckSquare size={24} color="#ffffff" />,
-      path: '/tasks',
+      path: '/(tabs)/tasks',
       color: ['#4c6ef5', '#3b5bdb'] as [string, string],
       count: upcomingTasks.length,
     },
@@ -98,7 +98,7 @@ export default function HomeScreen() {
       id: '2',
       title: 'Calendrier',
       icon: <Calendar size={24} color="#ffffff" />,
-      path: '/calendar',
+      path: '/(tabs)/calendar',
       color: ['#f76707', '#e8590c'] as [string, string],
       count: upcomingEvents.length,
     },
@@ -106,7 +106,7 @@ export default function HomeScreen() {
       id: '3',
       title: 'Annuaire',
       icon: <Users size={24} color="#ffffff" />,
-      path: '/directory',
+      path: '/(tabs)/directory',
       color: ['#1098ad', '#0c8599'] as [string, string],
       count: null,
     },
@@ -114,7 +114,7 @@ export default function HomeScreen() {
       id: '4',
       title: 'La Bible',
       icon: <BookOpen size={24} color="#ffffff" />,
-      path: '/resources',
+      path: '/(tabs)/resources',
       color: ['#ae3ec9', '#9c36b5'] as [string, string],
       count: null,
     },
@@ -122,7 +122,7 @@ export default function HomeScreen() {
       id: '5',
       title: 'Liens',
       icon: <Link size={24} color="#ffffff" />,
-      path: '/links',
+      path: '/(tabs)/links',
       color: ['#37b24d', '#2f9e44'] as [string, string],
       count: null,
     },
@@ -130,7 +130,7 @@ export default function HomeScreen() {
       id: '6',
       title: 'Notifications',
       icon: <Bell size={24} color="#ffffff" />,
-      path: '/notifications',
+      path: '/(tabs)/notifications',
       color: ['#f03e3e', '#e03131'] as [string, string],
       count: getUnreadCount(),
     },
@@ -226,7 +226,7 @@ export default function HomeScreen() {
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Tâches à venir
               </Text>
-              <TouchableOpacity onPress={() => navigateTo('/tasks')}>
+              <TouchableOpacity onPress={() => navigateTo('/(tabs)/tasks')}>
                 <Text style={[styles.seeAllText, { color: appColors.primary }]}>
                   Voir tout
                 </Text>
@@ -238,7 +238,7 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={task.id}
                   style={[styles.taskItem, { backgroundColor: theme.card }]}
-                  onPress={() => navigateTo('/tasks')}
+                  onPress={() => navigateTo('/(tabs)/tasks')}
                 >
                   <View style={[styles.taskStatus, { 
                     backgroundColor: task.status === 'pending' ? '#f59f00' : 
@@ -278,7 +278,7 @@ export default function HomeScreen() {
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 Événements à venir
               </Text>
-              <TouchableOpacity onPress={() => navigateTo('/calendar')}>
+              <TouchableOpacity onPress={() => navigateTo('/(tabs)/calendar')}>
                 <Text style={[styles.seeAllText, { color: appColors.primary }]}>
                   Voir tout
                 </Text>

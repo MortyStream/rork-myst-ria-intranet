@@ -1,269 +1,267 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
-  StyleSheet, 
   View, 
   Text, 
-  FlatList, 
-  TouchableOpacity,
+  StyleSheet, 
+  ScrollView, 
+  TouchableOpacity, 
   RefreshControl,
   Alert,
-  Switch,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, CheckCheck, BellOff, MoreVertical, Edit, Trash } from 'lucide-react-native';
+import { Bell, Check, Trash2, Filter } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useSettingsStore } from '@/store/settings-store';
-import { useResourcesStore } from '@/store/resources-store';
-import { Colors } from '@/constants/colors';
+import { Colors, useAppColors } from '@/constants/colors';
+import { AppLayout } from '@/components/AppLayout';
+import { Header } from '@/components/Header';
 import { NotificationItem } from '@/components/NotificationItem';
 import { EmptyState } from '@/components/EmptyState';
-import { Card } from '@/components/Card';
-import { Divider } from '@/components/Divider';
-import { Notification } from '@/types/notification';
+import { Badge } from '@/components/Badge';
 
 export default function NotificationsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { 
-    getUserNotifications, 
+    notifications, 
+    isLoading, 
+    error, 
+    initializeNotifications, 
     markAsRead, 
-    markAllAsRead, 
-    toggleMessaging, 
-    isMessagingEnabled,
-    deleteNotification 
+    markAllAsRead,
+    deleteNotification,
+    getUnreadCount,
+    getUserNotifications,
   } = useNotificationsStore();
   const { darkMode } = useSettingsStore();
-  const { categories, isUserSubscribed, subscribeToCategory, unsubscribeFromCategory } = useResourcesStore();
   const theme = darkMode ? Colors.dark : Colors.light;
+  const appColors = useAppColors();
   
+  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
+  const [selectedFilter, setSelectedFilter] = useState<'all' | 'unread' | 'read'>('all');
   const [refreshing, setRefreshing] = useState(false);
-  const [showCategorySettings, setShowCategorySettings] = useState(false);
-  const [selectedNotification, setSelectedNotification] = useState<string | null>(null);
-  const [showNotificationOptions, setShowNotificationOptions] = useState(false);
-  
-  const notifications = getUserNotifications();
-  const hasUnread = notifications.some(notification => !notification.read);
-  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
-  
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    // In a real app, you would fetch fresh data here
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+
+  useEffect(() => {
+    loadNotifications();
   }, []);
-  
-  const handleNotificationPress = (id: string) => {
-    markAsRead(id);
-  };
-  
-  const handleNotificationLongPress = (id: string) => {
-    if (isAdminOrModerator) {
-      setSelectedNotification(id);
-      setShowNotificationOptions(true);
+
+  const loadNotifications = async () => {
+    try {
+      await initializeNotifications();
+    } catch (error) {
+      console.error('Error loading notifications:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors du chargement des notifications.');
     }
   };
-  
-  const handleEditNotification = () => {
-    if (selectedNotification) {
-      router.push({
-        pathname: '/admin/notification-form',
-        params: { id: selectedNotification }
-      });
-      setShowNotificationOptions(false);
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await initializeNotifications();
+    } catch (error) {
+      console.error('Error refreshing notifications:', error);
+      Alert.alert('Erreur', 'Une erreur est survenue lors du rafraîchissement des notifications.');
+    } finally {
+      setRefreshing(false);
     }
   };
-  
-  const handleDeleteNotification = () => {
-    if (selectedNotification) {
-      Alert.alert(
-        'Confirmer la suppression',
-        'Êtes-vous sûr de vouloir supprimer cette notification ?',
-        [
-          { text: 'Annuler', style: 'cancel' },
-          { 
-            text: 'Supprimer', 
-            style: 'destructive',
-            onPress: () => {
-              deleteNotification(selectedNotification);
-              setShowNotificationOptions(false);
-              setSelectedNotification(null);
-            }
-          }
-        ]
-      );
-    }
+
+  const handleNotificationPress = (notificationId: string) => {
+    markAsRead(notificationId);
+    // Navigate to relevant screen based on notification type
+    // This would be implemented based on your notification structure
   };
-  
+
   const handleMarkAllAsRead = () => {
-    markAllAsRead();
-  };
-  
-  const handleToggleMessaging = () => {
-    const newState = !isMessagingEnabled;
-    toggleMessaging(newState);
+    if (getUnreadCount() === 0) return;
     
-    if (newState) {
-      Alert.alert('Notifications activées', 'Vous recevrez désormais des notifications.');
-    } else {
-      Alert.alert('Notifications désactivées', 'Vous ne recevrez plus de notifications.');
-    }
-  };
-  
-  const handleToggleCategorySettings = () => {
-    setShowCategorySettings(!showCategorySettings);
-  };
-  
-  const handleToggleCategorySubscription = (categoryId: string) => {
-    if (!user) return;
-    
-    const isSubscribed = isUserSubscribed(user.id, categoryId);
-    
-    if (isSubscribed) {
-      unsubscribeFromCategory(user.id, categoryId);
-    } else {
-      subscribeToCategory(user.id, categoryId);
-    }
-  };
-  
-  const renderCategoryItem = ({ item }) => {
-    if (!user) return null;
-    
-    const isSubscribed = isUserSubscribed(user.id, item.id);
-    
-    return (
-      <View style={[styles.categoryItem, { borderBottomColor: theme.border }]}>
-        <View style={styles.categoryInfo}>
-          <Text style={[styles.categoryTitle, { color: theme.text }]}>
-            {item.icon} {item.name}
-          </Text>
-        </View>
-        <Switch
-          value={isSubscribed}
-          onValueChange={() => handleToggleCategorySubscription(item.id)}
-          trackColor={{ false: '#767577', true: `${theme.primary}80` }}
-          thumbColor={isSubscribed ? theme.primary : '#f4f3f4'}
-        />
-      </View>
+    Alert.alert(
+      'Marquer tout comme lu',
+      'Voulez-vous marquer toutes les notifications comme lues ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Confirmer', 
+          onPress: () => markAllAsRead(),
+        },
+      ]
     );
   };
+
+  const handleDeleteNotification = (notificationId: string) => {
+    Alert.alert(
+      'Supprimer la notification',
+      'Voulez-vous supprimer cette notification ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Supprimer', 
+          style: 'destructive',
+          onPress: () => deleteNotification(notificationId),
+        },
+      ]
+    );
+  };
+
+  // Get user notifications
+  const userNotifications = user ? getUserNotifications(user.id) : [];
   
-  const renderNotificationItem = ({ item }: { item: Notification }) => (
-    <NotificationItem
-      notification={item}
-      onPress={() => handleNotificationPress(item.id)}
-      onLongPress={() => handleNotificationLongPress(item.id)}
-    />
-  );
-  
-  return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-      <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]}>Notifications 🔔</Text>
-        
-        <View style={styles.headerButtons}>
-          {hasUnread && (
-            <TouchableOpacity 
-              style={styles.markReadButton} 
-              onPress={handleMarkAllAsRead}
-            >
-              <CheckCheck size={20} color={theme.primary} />
-            </TouchableOpacity>
-          )}
-          
+  // Filter notifications based on selected filter
+  const filteredNotifications = userNotifications.filter(notification => {
+    switch (selectedFilter) {
+      case 'unread':
+        return !notification.read;
+      case 'read':
+        return notification.read;
+      default:
+        return true;
+    }
+  });
+
+  const unreadCount = getUnreadCount();
+
+  const filters = [
+    { key: 'all', label: 'Toutes', count: userNotifications.length },
+    { key: 'unread', label: 'Non lues', count: unreadCount },
+    { key: 'read', label: 'Lues', count: userNotifications.filter(n => n.read).length },
+  ];
+
+  const renderContent = () => {
+    if (isLoading && !refreshing) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={appColors.primary} />
+          <Text style={[styles.loadingText, { color: theme.text }]}>
+            Chargement des notifications...
+          </Text>
+        </View>
+      );
+    }
+
+    if (error) {
+      return (
+        <View style={styles.errorContainer}>
+          <Text style={[styles.errorText, { color: theme.error }]}>
+            {error}
+          </Text>
           <TouchableOpacity 
-            style={styles.toggleButton} 
-            onPress={handleToggleMessaging}
+            style={[styles.retryButton, { backgroundColor: appColors.primary }]}
+            onPress={loadNotifications}
           >
-            {isMessagingEnabled ? (
-              <Bell size={24} color={theme.primary} />
-            ) : (
-              <BellOff size={24} color={theme.text} />
-            )}
+            <Text style={styles.retryButtonText}>Réessayer</Text>
           </TouchableOpacity>
         </View>
-      </View>
-      
-      <TouchableOpacity 
-        style={[styles.settingsButton, { backgroundColor: theme.card }]}
-        onPress={handleToggleCategorySettings}
+      );
+    }
+
+    if (filteredNotifications.length === 0) {
+      return (
+        <EmptyState
+          icon="bell"
+          title="Aucune notification"
+          message={
+            selectedFilter === 'all'
+              ? "Vous n'avez pas encore de notifications"
+              : selectedFilter === 'unread'
+              ? "Vous n'avez pas de notifications non lues"
+              : "Vous n'avez pas de notifications lues"
+          }
+        />
+      );
+    }
+
+    return (
+      <ScrollView
+        style={styles.notificationsList}
+        contentContainerStyle={styles.notificationsContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={[appColors.primary]}
+            tintColor={appColors.primary}
+          />
+        }
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={[styles.settingsButtonText, { color: theme.text }]}>
-          {showCategorySettings ? "Masquer les paramètres de catégories" : "Gérer les abonnements aux catégories"}
-        </Text>
-      </TouchableOpacity>
-      
-      {showCategorySettings ? (
-        <FlatList
-          data={categories.sort((a, b) => a.order - b.order)}
-          keyExtractor={(item) => item.id}
-          renderItem={renderCategoryItem}
-          contentContainerStyle={styles.categoryListContent}
-          ItemSeparatorComponent={() => <Divider style={{ marginVertical: 0 }} />}
-          ListHeaderComponent={
-            <View style={styles.categoryHeader}>
-              <Text style={[styles.categoryHeaderText, { color: theme.text }]}>
-                Choisissez les catégories pour lesquelles vous souhaitez recevoir des notifications
-              </Text>
-            </View>
+        {filteredNotifications.map((notification) => (
+          <NotificationItem
+            key={notification.id}
+            notification={notification}
+            onPress={() => handleNotificationPress(notification.id)}
+            onDelete={() => handleDeleteNotification(notification.id)}
+          />
+        ))}
+      </ScrollView>
+    );
+  };
+
+  return (
+    <AppLayout
+      hideMenuButton={true}
+      onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
+    >
+      <View style={[styles.container, { backgroundColor: theme.background }]}>
+        <Header
+          title="Notifications 🔔"
+          onTitlePress={() => toggleSidebar?.()}
+          rightComponent={
+            unreadCount > 0 ? (
+              <TouchableOpacity 
+                style={styles.markAllButton}
+                onPress={handleMarkAllAsRead}
+              >
+                <Check size={24} color={theme.text} />
+              </TouchableOpacity>
+            ) : null
           }
         />
-      ) : (
-        <FlatList
-          data={notifications}
-          keyExtractor={(item) => item.id}
-          renderItem={renderNotificationItem}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <EmptyState
-              title="Aucune notification"
-              message="Vous n'avez pas encore reçu de notifications."
-              icon={<Bell size={48} color={theme.inactive} />}
-              style={styles.emptyState}
-            />
-          }
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        />
-      )}
-      
-      {/* Modal pour les options de notification */}
-      {showNotificationOptions && (
-        <View style={styles.modalOverlay}>
-          <View style={[styles.optionsModal, { backgroundColor: theme.card }]}>
-            <Text style={[styles.optionsTitle, { color: theme.text }]}>
-              Options de notification
-            </Text>
+
+        {/* Filters */}
+        <ScrollView 
+          horizontal 
+          style={styles.filtersContainer}
+          contentContainerStyle={styles.filtersContent}
+          showsHorizontalScrollIndicator={false}
+        >
+          {filters.map((filter) => {
+            const isSelected = selectedFilter === filter.key;
             
-            <TouchableOpacity 
-              style={styles.optionItem}
-              onPress={handleEditNotification}
-            >
-              <Edit size={20} color={theme.primary} style={styles.optionIcon} />
-              <Text style={[styles.optionText, { color: theme.text }]}>Modifier</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.optionItem}
-              onPress={handleDeleteNotification}
-            >
-              <Trash size={20} color={theme.error} style={styles.optionIcon} />
-              <Text style={[styles.optionText, { color: theme.error }]}>Supprimer</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={[styles.cancelButton, { borderTopColor: theme.border }]}
-              onPress={() => setShowNotificationOptions(false)}
-            >
-              <Text style={[styles.cancelText, { color: theme.primary }]}>Annuler</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-    </SafeAreaView>
+            return (
+              <TouchableOpacity
+                key={filter.key}
+                style={[
+                  styles.filterButton,
+                  { 
+                    backgroundColor: isSelected ? appColors.primary : theme.card,
+                    borderColor: isSelected ? appColors.primary : theme.border,
+                  }
+                ]}
+                onPress={() => setSelectedFilter(filter.key as any)}
+              >
+                <Text style={[
+                  styles.filterText,
+                  { color: isSelected ? '#ffffff' : theme.text }
+                ]}>
+                  {filter.label}
+                </Text>
+                {filter.count > 0 && (
+                  <Badge
+                    text={filter.count.toString()}
+                    variant={isSelected ? 'light' : 'primary'}
+                    size="small"
+                  />
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {renderContent()}
+      </View>
+    </AppLayout>
   );
 }
 
@@ -271,111 +269,64 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: 'bold',
-  },
-  headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  markReadButton: {
-    padding: 8,
-    marginRight: 8,
-  },
-  toggleButton: {
+  markAllButton: {
     padding: 8,
   },
-  settingsButton: {
-    padding: 12,
-    marginHorizontal: 20,
-    marginBottom: 16,
-    borderRadius: 8,
+  filtersContainer: {
+    paddingVertical: 8,
+  },
+  filtersContent: {
+    paddingHorizontal: 16,
+    gap: 8,
+  },
+  filterButton: {
+    flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
   },
-  settingsButtonText: {
-    fontWeight: '500',
-  },
-  listContent: {
-    paddingBottom: 20,
-  },
-  emptyState: {
-    marginTop: 40,
-  },
-  categoryListContent: {
-    paddingBottom: 20,
-  },
-  categoryHeader: {
-    padding: 16,
-  },
-  categoryHeaderText: {
+  filterText: {
     fontSize: 14,
-    textAlign: 'center',
-  },
-  categoryItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderBottomWidth: 1,
-  },
-  categoryInfo: {
-    flex: 1,
-  },
-  categoryTitle: {
-    fontSize: 16,
     fontWeight: '500',
   },
-  modalOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  loadingContainer: {
+    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    zIndex: 1000,
   },
-  optionsModal: {
-    width: '80%',
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  optionsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
+  loadingText: {
+    fontSize: 16,
+    marginTop: 16,
     textAlign: 'center',
-    paddingVertical: 16,
   },
-  optionItem: {
-    flexDirection: 'row',
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 16,
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  retryButton: {
     paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
   },
-  optionIcon: {
-    marginRight: 16,
-  },
-  optionText: {
+  retryButtonText: {
+    color: '#FFFFFF',
     fontSize: 16,
+    fontWeight: '500',
   },
-  cancelButton: {
-    paddingVertical: 16,
-    alignItems: 'center',
-    borderTopWidth: 1,
-    marginTop: 8,
+  notificationsList: {
+    flex: 1,
   },
-  cancelText: {
-    fontSize: 16,
-    fontWeight: '600',
+  notificationsContent: {
+    padding: 16,
   },
 });

@@ -16,9 +16,10 @@ export default function ResourcesScreen() {
   const theme = darkMode ? Colors.dark : Colors.light;
   const [categories, setCategories] = useState<ResourceCategory[]>([]);
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
-  const { getVisibleCategories, isLoading } = useResourcesStore();
+  const { getVisibleCategories, isLoading, initializeCategories } = useResourcesStore();
 
   useEffect(() => {
+    initializeCategories();
     loadCategories();
   }, []);
 
@@ -39,7 +40,7 @@ export default function ResourcesScreen() {
       <View style={[styles.container, { backgroundColor: theme.background }]}>
         <Header
           title="La Bible 📚"
-          onTitlePress={toggleSidebar || undefined}
+          onTitlePress={() => toggleSidebar?.()}
         />
 
         <View style={[styles.header, { backgroundColor: theme.card }]}>

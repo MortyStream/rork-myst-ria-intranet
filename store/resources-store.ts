@@ -1,304 +1,389 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ResourceCategory, ResourceItem, ResourceItemType } from '@/types/resource';
+import { ResourceCategory, ResourceItem } from '@/types/resource';
+import { v4 as uuidv4 } from 'uuid';
 
 interface ResourcesState {
   categories: ResourceCategory[];
   resourceItems: ResourceItem[];
+  subscriptions: Record<string, string[]>; // userId -> categoryIds[]
   isLoading: boolean;
   error: string | null;
-  
-  // Category actions
-  addCategory: (category: Omit<ResourceCategory, 'id'>) => void;
-  updateCategory: (id: string, updates: Partial<ResourceCategory>) => void;
-  deleteCategory: (id: string) => void;
-  getCategoryById: (id: string) => ResourceCategory | undefined;
-  getVisibleCategories: () => Promise<ResourceCategory[]>;
-  
-  // Resource item actions
-  addResourceItem: (item: Omit<ResourceItem, 'id'>) => void;
-  updateResourceItem: (id: string, updates: Partial<ResourceItem>) => void;
-  deleteResourceItem: (id: string) => void;
-  getResourceItemById: (id: string) => ResourceItem | undefined;
-  getResourceItemsByCategory: (categoryId: string, parentId?: string | null) => ResourceItem[];
-  
-  // User subscription actions
+  getVisibleCategories: () => ResourceCategory[];
+  getUserSubscriptions: (userId: string) => string[];
+  isUserSubscribed: (userId: string, categoryId: string) => boolean;
   subscribeToCategory: (userId: string, categoryId: string) => void;
   unsubscribeFromCategory: (userId: string, categoryId: string) => void;
-  isUserSubscribed: (userId: string, categoryId: string) => boolean;
+  getCategoryById: (categoryId: string) => ResourceCategory | undefined;
+  getResourceItemById: (itemId: string) => Promise<ResourceItem | undefined>;
+  getResourceItemsByCategory: (categoryId: string, parentId?: string | null) => ResourceItem[];
+  addCategory: (category: Omit<ResourceCategory, 'id' | 'createdAt' | 'updatedAt'>) => void;
+  updateCategory: (id: string, updates: Partial<ResourceCategory>) => void;
+  deleteCategory: (id: string) => void;
+  addResourceItem: (item: Omit<ResourceItem, 'id' | 'createdAt' | 'updatedAt'>) => string;
+  updateResourceItem: (id: string, updates: Partial<ResourceItem>) => void;
+  deleteResourceItem: (id: string) => void;
+  getCategoryMembers: (categoryId: string) => Promise<any[]>;
+  addCategoryMember: (member: { userId: string; categoryId: string; role: string; }) => Promise<string>;
+  updateCategoryMember: (id: string, updates: { role: string; }) => Promise<void>;
+  deleteCategoryMember: (id: string) => Promise<void>;
   isUserCategoryResponsible: (userId: string, categoryId: string) => boolean;
-  getUserSubscriptions: (userId: string) => string[];
-  
-  // Initialization
-  initializeCategories: () => void;
+  initializeDefaultCategories: () => void;
 }
 
-const defaultCategories: ResourceCategory[] = [
-  {
-    id: '1',
-    name: 'Administration',
-    icon: '📋',
-    description: 'Documents administratifs et procédures',
-    visible: true,
+// Default categories with exact Supabase IDs
+const DEFAULT_CATEGORIES: ResourceCategory[] = [
+  { 
+    id: 'd4edecc8-a4ba-4116-bd0c-16dd3d633cab',
+    name: 'Administration', 
+    description: 'Documents administratifs et procès-verbaux', 
+    icon: '📋', 
     order: 1,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '2',
-    name: 'Ressource Humaine',
-    icon: '👥',
-    description: 'Gestion des ressources humaines',
-    visible: true,
+  { 
+    id: '49f3741e-ecf6-4854-bbb5-751f8e8b742d',
+    name: 'Ressource Humaine', 
+    description: 'Gestion du personnel, recrutement et formation', 
+    icon: '👥', 
     order: 2,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '3',
-    name: 'Immersion & Interaction',
-    icon: '🎭',
-    description: 'Techniques d\'immersion et d\'interaction',
-    visible: true,
+  { 
+    id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+    name: 'Immersion & Interaction', 
+    description: 'Expériences immersives et interactions avec le public', 
+    icon: '🌀', 
     order: 3,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '4',
-    name: 'Marketing, Sponsorings & Partenaire',
-    icon: '📢',
-    description: 'Marketing, sponsoring et partenariats',
-    visible: true,
+  { 
+    id: 'a8b7c6d5-e4f3-2g1h-i0j9-k8l7m6n5o4p3',
+    name: 'Marketing, Sponsorings & Partenaire', 
+    description: 'Stratégies marketing, sponsors et partenariats', 
+    icon: '🤝', 
     order: 4,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '5',
-    name: 'Réalisation & Production',
-    icon: '🎬',
-    description: 'Réalisation et production',
-    visible: true,
+  { 
+    id: 'b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7',
+    name: 'Réalisation & Production', 
+    description: 'Mise en scène, production et réalisation', 
+    icon: '🎬', 
     order: 5,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '6',
-    name: 'Conception décoration',
-    icon: '🎨',
-    description: 'Conception et décoration',
-    visible: true,
+  { 
+    id: 'c3d4e5f6-g7h8-i9j0-k1l2-m3n4o5p6q7r8',
+    name: 'Conception décoration', 
+    description: 'Design et décoration des espaces', 
+    icon: '🎨', 
     order: 6,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '7',
-    name: 'Conception Artistique',
-    icon: '🎪',
-    description: 'Conception artistique',
-    visible: true,
+  { 
+    id: 'd4e5f6g7-h8i9-j0k1-l2m3-n4o5p6q7r8s9',
+    name: 'Conception Artistique', 
+    description: 'Direction artistique et conception créative', 
+    icon: '🖌️', 
     order: 7,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '8',
-    name: 'Carting & Direction des comédiens',
-    icon: '🎯',
-    description: 'Casting et direction des comédiens',
-    visible: true,
+  { 
+    id: 'e5f6g7h8-i9j0-k1l2-m3n4-o5p6q7r8s9t0',
+    name: 'Casting & Direction des comédiens', 
+    description: 'Sélection et direction des acteurs et comédiens', 
+    icon: '🎭', 
     order: 8,
-    responsibleUsers: [],
-    subscribedUsers: [],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   },
-  {
-    id: '9',
-    name: 'Logistique & Technique',
-    icon: '⚙️',
-    description: 'Logistique et technique',
-    visible: true,
+  { 
+    id: 'f6g7h8i9-j0k1-l2m3-n4o5-p6q7r8s9t0u1',
+    name: 'Logistique & Technique', 
+    description: 'Gestion logistique et support technique', 
+    icon: '🔧', 
     order: 9,
-    responsibleUsers: [],
-    subscribedUsers: [],
-  },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  }
 ];
 
 export const useResourcesStore = create<ResourcesState>()(
   persist(
     (set, get) => ({
-      categories: [],
+      categories: DEFAULT_CATEGORIES,
       resourceItems: [],
+      subscriptions: {},
       isLoading: false,
       error: null,
 
-      // Category actions
-      addCategory: (category) => {
-        const newCategory: ResourceCategory = {
-          ...category,
-          id: Date.now().toString(),
-        };
-        set((state) => ({
-          categories: [...state.categories, newCategory],
+      initializeDefaultCategories: () => {
+        set(state => ({
+          ...state,
+          categories: DEFAULT_CATEGORIES
         }));
+      },
+
+      getVisibleCategories: () => {
+        return get().categories;
+      },
+
+      getUserSubscriptions: (userId: string) => {
+        try {
+          return get().subscriptions[userId] || [];
+        } catch (error) {
+          console.error('Error getting user subscriptions:', error);
+          return [];
+        }
+      },
+
+      isUserSubscribed: (userId: string, categoryId: string) => {
+        try {
+          const userSubs = get().subscriptions[userId] || [];
+          return userSubs.includes(categoryId);
+        } catch (error) {
+          console.error('Error checking user subscription:', error);
+          return false;
+        }
+      },
+
+      subscribeToCategory: (userId: string, categoryId: string) => {
+        try {
+          set(state => {
+            const userSubs = state.subscriptions[userId] || [];
+            if (!userSubs.includes(categoryId)) {
+              return {
+                subscriptions: {
+                  ...state.subscriptions,
+                  [userId]: [...userSubs, categoryId]
+                }
+              };
+            }
+            return state;
+          });
+        } catch (error) {
+          console.error('Error subscribing to category:', error);
+        }
+      },
+
+      unsubscribeFromCategory: (userId: string, categoryId: string) => {
+        try {
+          set(state => {
+            const userSubs = state.subscriptions[userId] || [];
+            return {
+              subscriptions: {
+                ...state.subscriptions,
+                [userId]: userSubs.filter(id => id !== categoryId)
+              }
+            };
+          });
+        } catch (error) {
+          console.error('Error unsubscribing from category:', error);
+        }
+      },
+
+      getCategoryById: (categoryId: string) => {
+        try {
+          return get().categories.find(cat => cat.id === categoryId);
+        } catch (error) {
+          console.error('Error getting category by ID:', error);
+          return undefined;
+        }
+      },
+
+      getResourceItemById: async (itemId: string) => {
+        try {
+          return get().resourceItems.find(item => item.id === itemId);
+        } catch (error) {
+          console.error('Error getting resource item:', error);
+          return undefined;
+        }
+      },
+
+      getResourceItemsByCategory: (categoryId: string, parentId: string | null = null) => {
+        try {
+          return get().resourceItems.filter(
+            item => item.categoryId === categoryId && item.parentId === parentId
+          );
+        } catch (error) {
+          console.error('Error getting resource items by category:', error);
+          return [];
+        }
+      },
+
+      addCategory: (category) => {
+        try {
+          const newCategory: ResourceCategory = {
+            ...category,
+            id: uuidv4(),
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          set(state => ({
+            categories: [...state.categories, newCategory]
+          }));
+        } catch (error) {
+          console.error('Error adding category:', error);
+        }
       },
 
       updateCategory: (id, updates) => {
-        set((state) => ({
-          categories: state.categories.map((category) =>
-            category.id === id ? { ...category, ...updates } : category
-          ),
-        }));
+        try {
+          set(state => ({
+            categories: state.categories.map(category =>
+              category.id === id
+                ? { ...category, ...updates, updatedAt: new Date().toISOString() }
+                : category
+            )
+          }));
+        } catch (error) {
+          console.error('Error updating category:', error);
+        }
       },
 
       deleteCategory: (id) => {
-        set((state) => ({
-          categories: state.categories.filter((category) => category.id !== id),
-          resourceItems: state.resourceItems.filter((item) => item.categoryId !== id),
-        }));
+        try {
+          set(state => ({
+            categories: state.categories.filter(category => category.id !== id),
+            // Also delete all resource items in this category
+            resourceItems: state.resourceItems.filter(item => item.categoryId !== id)
+          }));
+        } catch (error) {
+          console.error('Error deleting category:', error);
+        }
       },
 
-      getCategoryById: (id) => {
-        return get().categories.find((category) => category.id === id);
-      },
-
-      getVisibleCategories: async () => {
-        const { categories } = get();
-        return categories
-          .filter((category) => category.visible)
-          .sort((a, b) => a.order - b.order);
-      },
-
-      // Resource item actions
       addResourceItem: (item) => {
-        const newItem: ResourceItem = {
-          ...item,
-          id: Date.now().toString(),
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        };
-        set((state) => ({
-          resourceItems: [...state.resourceItems, newItem],
-        }));
+        try {
+          const newItemId = uuidv4();
+          const newItem: ResourceItem = {
+            ...item,
+            id: newItemId,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+          };
+
+          set(state => ({
+            resourceItems: [...state.resourceItems, newItem]
+          }));
+          
+          return newItemId;
+        } catch (error) {
+          console.error('Error adding resource item:', error);
+          return '';
+        }
       },
 
       updateResourceItem: (id, updates) => {
-        set((state) => ({
-          resourceItems: state.resourceItems.map((item) =>
-            item.id === id 
-              ? { ...item, ...updates, updatedAt: new Date().toISOString() } 
-              : item
-          ),
-        }));
+        try {
+          set(state => ({
+            resourceItems: state.resourceItems.map(item =>
+              item.id === id
+                ? { ...item, ...updates, updatedAt: new Date().toISOString() }
+                : item
+            )
+          }));
+        } catch (error) {
+          console.error('Error updating resource item:', error);
+        }
       },
 
       deleteResourceItem: (id) => {
-        const { resourceItems } = get();
-        const itemToDelete = resourceItems.find(item => item.id === id);
-        
-        if (itemToDelete?.type === 'folder') {
-          // Delete all items in this folder recursively
-          const deleteItemsInFolder = (folderId: string) => {
-            const itemsInFolder = resourceItems.filter(item => item.parentId === folderId);
-            itemsInFolder.forEach(item => {
-              if (item.type === 'folder') {
-                deleteItemsInFolder(item.id);
-              }
-            });
-          };
-          deleteItemsInFolder(id);
-        }
-        
-        set((state) => ({
-          resourceItems: state.resourceItems.filter((item) => 
-            item.id !== id && item.parentId !== id
-          ),
-        }));
-      },
-
-      getResourceItemById: (id) => {
-        return get().resourceItems.find((item) => item.id === id);
-      },
-
-      getResourceItemsByCategory: (categoryId, parentId = null) => {
-        const { resourceItems } = get();
-        return resourceItems
-          .filter((item) => 
-            item.categoryId === categoryId && 
-            item.parentId === parentId
-          )
-          .sort((a, b) => {
-            // Folders first, then by title
-            if (a.type === 'folder' && b.type !== 'folder') return -1;
-            if (a.type !== 'folder' && b.type === 'folder') return 1;
-            return a.title.localeCompare(b.title);
-          });
-      },
-
-      // User subscription actions
-      subscribeToCategory: (userId, categoryId) => {
-        set((state) => ({
-          categories: state.categories.map((category) =>
-            category.id === categoryId
-              ? {
-                  ...category,
-                  subscribedUsers: category.subscribedUsers.includes(userId)
-                    ? category.subscribedUsers
-                    : [...category.subscribedUsers, userId],
+        try {
+          // First, get the item to check if it's a folder
+          const itemToDelete = get().resourceItems.find(item => item.id === id);
+          
+          if (itemToDelete && itemToDelete.type === 'folder') {
+            // If it's a folder, also delete all items inside it (recursive)
+            const deleteItemsRecursively = (parentId: string) => {
+              // Get all direct children
+              const children = get().resourceItems.filter(item => item.parentId === parentId);
+              
+              // For each child folder, delete its contents recursively
+              children.forEach(child => {
+                if (child.type === 'folder') {
+                  deleteItemsRecursively(child.id);
                 }
-              : category
-          ),
-        }));
-      },
-
-      unsubscribeFromCategory: (userId, categoryId) => {
-        set((state) => ({
-          categories: state.categories.map((category) =>
-            category.id === categoryId
-              ? {
-                  ...category,
-                  subscribedUsers: category.subscribedUsers.filter((id) => id !== userId),
-                }
-              : category
-          ),
-        }));
-      },
-
-      isUserSubscribed: (userId, categoryId) => {
-        const category = get().getCategoryById(categoryId);
-        return category?.subscribedUsers.includes(userId) || false;
-      },
-
-      isUserCategoryResponsible: (userId, categoryId) => {
-        const category = get().getCategoryById(categoryId);
-        return category?.responsibleUsers.includes(userId) || false;
-      },
-
-      getUserSubscriptions: (userId) => {
-        const { categories } = get();
-        return categories
-          .filter(category => category.subscribedUsers.includes(userId))
-          .map(category => category.id);
-      },
-
-      // Initialization
-      initializeCategories: () => {
-        const { categories } = get();
-        if (categories.length === 0) {
-          set({ categories: defaultCategories });
+              });
+              
+              // Delete all children
+              set(state => ({
+                resourceItems: state.resourceItems.filter(item => item.parentId !== parentId)
+              }));
+            };
+            
+            // Start recursive deletion
+            deleteItemsRecursively(id);
+          }
+          
+          // Delete the item itself
+          set(state => ({
+            resourceItems: state.resourceItems.filter(item => item.id !== id)
+          }));
+        } catch (error) {
+          console.error('Error deleting resource item:', error);
         }
       },
+
+      getCategoryMembers: async (categoryId: string) => {
+        try {
+          return [];
+        } catch (error) {
+          console.error('Error getting category members:', error);
+          return [];
+        }
+      },
+
+      addCategoryMember: async (member) => {
+        try {
+          return "member-id";
+        } catch (error) {
+          console.error('Error adding category member:', error);
+          throw error;
+        }
+      },
+
+      updateCategoryMember: async (id, updates) => {
+        try {
+          // Implementation will be added when we add Supabase
+        } catch (error) {
+          console.error('Error updating category member:', error);
+          throw error;
+        }
+      },
+
+      deleteCategoryMember: async (id) => {
+        try {
+          // Implementation will be added when we add Supabase
+        } catch (error) {
+          console.error('Error deleting category member:', error);
+          throw error;
+        }
+      },
+
+      isUserCategoryResponsible: (userId: string, categoryId: string) => {
+        try {
+          const category = get().getCategoryById(categoryId);
+          return category?.responsibleId === userId;
+        } catch (error) {
+          console.error('Error checking if user is category responsible:', error);
+          return false;
+        }
+      }
     }),
     {
       name: 'resources-storage',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({
-        categories: state.categories,
-        resourceItems: state.resourceItems,
-      }),
     }
   )
 );

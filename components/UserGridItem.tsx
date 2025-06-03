@@ -61,13 +61,13 @@ export const UserGridItem: React.FC<UserGridItemProps> = ({
     }
   };
   
-  const avatarSize = size * 0.7;
+  const avatarSize = size * 0.6;
   
   return (
     <TouchableOpacity
       style={[
         styles.container,
-        { width: size, height: size + 40 },
+        { width: size, height: size + 20 },
         style
       ]}
       onPress={onPress}
@@ -112,12 +112,12 @@ const styles = StyleSheet.create({
   avatarContainer: {
     position: 'relative',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   editBadge: {
     position: 'absolute',
-    bottom: 8,
-    right: 8,
+    bottom: 6,
+    right: 6,
     width: 16,
     height: 16,
     borderRadius: 8,
@@ -128,13 +128,13 @@ const styles = StyleSheet.create({
   },
   roleBadgeContainer: {
     position: 'absolute',
-    top: -8,
+    top: -6,
     alignItems: 'center',
   },
   name: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
     textAlign: 'center',
-    lineHeight: 16,
+    lineHeight: 14,
   },
 });

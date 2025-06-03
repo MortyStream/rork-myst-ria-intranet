@@ -90,7 +90,8 @@ export default function ResourceCategoryScreen() {
       setFolderPath(newPath);
       setCurrentFolder(lastFolder?.id || null);
     } else {
-      router.push('/resources');
+      // Go back to resources tab instead of general resources page
+      router.push('/(tabs)/resources');
     }
   };
 
@@ -273,14 +274,14 @@ export default function ResourceCategoryScreen() {
         <Header 
           title="Catégorie introuvable"
           showBackButton
-          onBackPress={() => router.push('/resources')}
+          onBackPress={() => router.push('/(tabs)/resources')}
         />
         <EmptyState
           title="Catégorie introuvable"
           message="La catégorie que vous recherchez n'existe pas ou a été supprimée."
           icon="alert"
           actionLabel="Retour aux catégories"
-          onAction={() => router.push('/resources')}
+          onAction={() => router.push('/(tabs)/resources')}
         />
       </SafeAreaView>
     );

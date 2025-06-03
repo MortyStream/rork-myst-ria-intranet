@@ -28,6 +28,7 @@ interface ResourcesState {
   unsubscribeFromCategory: (userId: string, categoryId: string) => void;
   isUserSubscribed: (userId: string, categoryId: string) => boolean;
   isUserCategoryResponsible: (userId: string, categoryId: string) => boolean;
+  getUserSubscriptions: (userId: string) => string[];
   
   // Initialization
   initializeCategories: () => void;
@@ -274,6 +275,13 @@ export const useResourcesStore = create<ResourcesState>()(
       isUserCategoryResponsible: (userId, categoryId) => {
         const category = get().getCategoryById(categoryId);
         return category?.responsibleUsers.includes(userId) || false;
+      },
+
+      getUserSubscriptions: (userId) => {
+        const { categories } = get();
+        return categories
+          .filter(category => category.subscribedUsers.includes(userId))
+          .map(category => category.id);
       },
 
       // Initialization

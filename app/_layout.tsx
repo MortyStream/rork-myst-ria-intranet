@@ -58,6 +58,11 @@ export default function RootLayout() {
     if (isAuthenticated && isLoginScreen) {
       router.replace('/home');
     }
+
+    // Redirect to home if at root
+    if (isAuthenticated && segments.length === 0) {
+      router.replace('/home');
+    }
   }, [isAuthenticated, segments, isLoading]);
   
   if (isLoading) {
@@ -75,6 +80,7 @@ export default function RootLayout() {
               backgroundColor: darkMode ? Colors.dark.background : Colors.light.background,
             },
           }}
+          initialRouteName="home"
         >
           <Stack.Screen name="home" options={{ headerShown: false }} />
           <Stack.Screen name="directory" options={{ headerShown: false }} />

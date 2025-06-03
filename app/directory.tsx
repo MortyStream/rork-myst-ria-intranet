@@ -6,8 +6,6 @@ import {
   TouchableOpacity, 
   ActivityIndicator,
   Alert,
-  ScrollView,
-  RefreshControl,
   FlatList,
   Dimensions,
 } from 'react-native';
@@ -25,7 +23,10 @@ import { UserGridItem } from '@/components/UserGridItem';
 import { EmptyState } from '@/components/EmptyState';
 
 const { width } = Dimensions.get('window');
-const ITEM_SIZE = (width - 48) / 3; // 3 items per row with padding
+const GRID_PADDING = 16;
+const GRID_SPACING = 8;
+const ITEMS_PER_ROW = 3;
+const ITEM_SIZE = (width - (GRID_PADDING * 2) - (GRID_SPACING * (ITEMS_PER_ROW - 1))) / ITEMS_PER_ROW;
 
 export default function DirectoryScreen() {
   const router = useRouter();
@@ -39,7 +40,6 @@ export default function DirectoryScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
   
-  // Check if user is admin or moderator
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
   useEffect(() => {
@@ -87,7 +87,6 @@ export default function DirectoryScreen() {
     router.push(`/user/${userId}`);
   };
   
-  // Filter users based on search query
   const filteredUsers = users.filter(user => {
     const searchLower = searchQuery.toLowerCase();
     return (
@@ -98,7 +97,6 @@ export default function DirectoryScreen() {
     );
   });
   
-  // Sort users by last name
   const sortedUsers = [...filteredUsers].sort((a, b) => 
     a.lastName.localeCompare(b.lastName)
   );
@@ -109,9 +107,10 @@ export default function DirectoryScreen() {
       onPress={() => handleUserPress(item.id)}
       size={ITEM_SIZE}
       style={{
-        marginRight: (index + 1) % 3 === 0 ? 0 : 8,
-        marginBottom: 16,
+        marginRight: (index + 1) % ITEMS_PER_ROW === 0 ? 0 : GRID_SPACING,
+        marginBottom: GRID_SPACING,
       }}
+      showRoleBadge
     />
   );
   
@@ -162,16 +161,10 @@ export default function DirectoryScreen() {
         data={sortedUsers}
         renderItem={renderUserItem}
         keyExtractor={(item) => item.id}
-        numColumns={3}
+        numColumns={ITEMS_PER_ROW}
         contentContainerStyle={styles.gridContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={isRefreshing}
-            onRefresh={handleRefresh}
-            colors={[theme.primary]}
-            tintColor={theme.primary}
-          />
-        }
+        onRefresh={handleRefresh}
+        refreshing={isRefreshing}
         showsVerticalScrollIndicator={false}
       />
     );
@@ -203,6 +196,7 @@ export default function DirectoryScreen() {
           }
           containerStyle={styles.headerContainer}
         />
+        
         <View style={styles.searchContainer}>
           <Input
             placeholder="Rechercher un utilisateur..."
@@ -212,6 +206,7 @@ export default function DirectoryScreen() {
             containerStyle={styles.searchInput}
           />
         </View>
+        
         {renderContent()}
       </SafeAreaView>
     </AppLayout>
@@ -271,6 +266,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   gridContent: {
-    padding: 16,
+    padding: GRID_PADDING,
   },
 });

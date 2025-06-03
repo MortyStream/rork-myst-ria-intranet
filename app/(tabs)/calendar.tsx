@@ -1,60 +1,70 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity, 
-  RefreshControl,
-  Alert,
-  ActivityIndicator,
+import {
+  StyleSheet,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  FlatList,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Plus, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react-native';
-import { useAuthStore } from '@/store/auth-store';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import {
+  Clock,
+  MapPin,
+  Plus,
+  Calendar as CalendarIcon,
+  Users,
+  ChevronRight,
+} from 'lucide-react-native';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useSettingsStore } from '@/store/settings-store';
-import { Colors, useAppColors } from '@/constants/colors';
+import { useAuthStore } from '@/store/auth-store';
+import { useUsersStore } from '@/store/users-store';
+import { Colors } from '@/constants/colors';
+import { Calendar } from '@/components/Calendar';
+import { Card } from '@/components/Card';
+import { Button } from '@/components/Button';
+import { EmptyState } from '@/components/EmptyState';
+import { Event } from '@/types/calendar';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
-import { Calendar } from '@/components/Calendar';
-import { EmptyState } from '@/components/EmptyState';
-import { Card } from '@/components/Card';
+import { UserRole } from '@/types/user';
 
 export default function CalendarScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { events, isLoading, error, initializeEvents, getEventsByDate, getUpcomingEvents } = useCalendarStore();
   const { darkMode } = useSettingsStore();
+  const { getEventsByDate, getUpcomingEvents, getVisibleEvents } = useCalendarStore();
+  const { getUserById } = useUsersStore();
   const theme = darkMode ? Colors.dark : Colors.light;
-  const appColors = useAppColors();
-  
-  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
+  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
+
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [refreshing, setRefreshing] = useState(false);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
+
+  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
 
   useEffect(() => {
-    loadEvents();
-  }, []);
+    if (user) {
+      const dateEvents = getEventsByDate(selectedDate);
+      setEvents(dateEvents);
 
-  const loadEvents = async () => {
-    try {
-      await initializeEvents();
-    } catch (error) {
-      console.error('Error loading events:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors du chargement des événements.');
+      const upcoming = getUpcomingEvents(5).filter(event => {
+        return getVisibleEvents(user.id).some(e => e.id === event.id);
+      });
+      setUpcomingEvents(upcoming);
     }
+  }, [selectedDate, user]);
+
+  const handleSelectDate = (date: Date) => {
+    setSelectedDate(date);
   };
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    try {
-      await initializeEvents();
-    } catch (error) {
-      console.error('Error refreshing events:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors du rafraîchissement des événements.');
-    } finally {
-      setRefreshing(false);
+  const handleAddEvent = () => {
+    if (isAdminOrModerator) {
+      router.push(`/calendar/event-form?date=${selectedDate.toISOString()}`);
     }
   };
 
@@ -62,200 +72,135 @@ export default function CalendarScreen() {
     router.push(`/calendar/event-detail/${eventId}`);
   };
 
-  const handleAddEvent = () => {
-    router.push('/calendar/event-form');
+  const formatEventTime = (startTime: string, endTime?: string) => {
+    const start = new Date(startTime);
+    const formattedStart = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    
+    if (endTime) {
+      const end = new Date(endTime);
+      const formattedEnd = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      return `${formattedStart} - ${formattedEnd}`;
+    }
+    
+    return formattedStart;
   };
 
-  const handleDateSelect = (date: Date) => {
-    setSelectedDate(date);
-  };
-
-  // Get events for selected date
-  const selectedDateEvents = getEventsByDate(selectedDate);
-  const upcomingEvents = getUpcomingEvents(5);
-
-  const formatDate = (date: Date) => {
+  const formatEventDate = (date: Date) => {
     return date.toLocaleDateString('fr-FR', {
       weekday: 'long',
-      year: 'numeric',
-      month: 'long',
       day: 'numeric',
+      month: 'long'
     });
   };
 
-  const formatTime = (date: Date) => {
-    return date.toLocaleTimeString('fr-FR', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-  };
-
-  const renderContent = () => {
-    if (isLoading && !refreshing) {
-      return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={appColors.primary} />
-          <Text style={[styles.loadingText, { color: theme.text }]}>
-            Chargement du calendrier...
-          </Text>
-        </View>
-      );
-    }
-
-    if (error) {
-      return (
-        <View style={styles.errorContainer}>
-          <Text style={[styles.errorText, { color: theme.error }]}>
-            {error}
-          </Text>
-          <TouchableOpacity 
-            style={[styles.retryButton, { backgroundColor: appColors.primary }]}
-            onPress={loadEvents}
-          >
-            <Text style={styles.retryButtonText}>Réessayer</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
+  const renderEventItem = ({ item }: { item: Event }) => {
+    const creator = getUserById(item.createdBy);
+    const participantsCount = item.participants?.length || 0;
 
     return (
-      <ScrollView
-        style={styles.content}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            colors={[appColors.primary]}
-            tintColor={appColors.primary}
-          />
-        }
-        showsVerticalScrollIndicator={false}
+      <TouchableOpacity
+        style={[styles.eventItem, { backgroundColor: theme.card }]}
+        onPress={() => handleEventPress(item.id)}
       >
-        {/* Calendar Component */}
-        <Card style={styles.calendarCard}>
-          <Calendar
-            selectedDate={selectedDate}
-            onDateSelect={handleDateSelect}
-            events={events}
-          />
-        </Card>
-
-        {/* Selected Date Events */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            {formatDate(selectedDate)}
+        <View style={[styles.eventColorIndicator, { backgroundColor: item.color || theme.primary }]} />
+        
+        <View style={styles.eventContent}>
+          <Text style={[styles.eventTitle, { color: theme.text }]}>
+            {item.title}
           </Text>
           
-          {selectedDateEvents.length > 0 ? (
-            selectedDateEvents.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.eventItem, { backgroundColor: theme.card }]}
-                onPress={() => handleEventPress(event.id)}
-              >
-                <View style={[styles.eventColor, { backgroundColor: event.color || appColors.primary }]} />
-                
-                <View style={styles.eventContent}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>
-                    {event.title}
-                  </Text>
-                  
-                  <Text style={[styles.eventTime, { color: theme.inactive }]}>
-                    {formatTime(new Date(event.startTime))} - {formatTime(new Date(event.endTime))}
-                  </Text>
-                  
-                  {event.description && (
-                    <Text style={[styles.eventDescription, { color: theme.inactive }]} numberOfLines={2}>
-                      {event.description}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <EmptyState
-              icon="calendar"
-              title="Aucun événement"
-              message="Il n'y a pas d'événements pour cette date."
-            />
-          )}
+          <View style={styles.eventDetails}>
+            <View style={styles.eventDetail}>
+              <Clock size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
+              <Text style={[styles.eventDetailText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                {formatEventTime(item.startTime, item.endTime)}
+              </Text>
+            </View>
+            
+            {item.location && (
+              <View style={styles.eventDetail}>
+                <MapPin size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
+                <Text style={[styles.eventDetailText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                  {item.location}
+                </Text>
+              </View>
+            )}
+            
+            <View style={styles.eventDetail}>
+              <Users size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
+              <Text style={[styles.eventDetailText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                {participantsCount} {participantsCount > 1 ? 'participants' : 'participant'}
+              </Text>
+            </View>
+          </View>
         </View>
-
-        {/* Upcoming Events */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: theme.text }]}>
-            Événements à venir
-          </Text>
-          
-          {upcomingEvents.length > 0 ? (
-            upcomingEvents.map((event) => (
-              <TouchableOpacity
-                key={event.id}
-                style={[styles.eventItem, { backgroundColor: theme.card }]}
-                onPress={() => handleEventPress(event.id)}
-              >
-                <View style={styles.eventDate}>
-                  <Text style={[styles.eventDay, { color: theme.text }]}>
-                    {new Date(event.startTime).getDate()}
-                  </Text>
-                  <Text style={[styles.eventMonth, { color: theme.inactive }]}>
-                    {new Date(event.startTime).toLocaleDateString('fr-FR', { month: 'short' })}
-                  </Text>
-                </View>
-                
-                <View style={[styles.eventSeparator, { backgroundColor: event.color || appColors.primary }]} />
-                
-                <View style={styles.eventContent}>
-                  <Text style={[styles.eventTitle, { color: theme.text }]}>
-                    {event.title}
-                  </Text>
-                  
-                  <Text style={[styles.eventTime, { color: theme.inactive }]}>
-                    {formatTime(new Date(event.startTime))} - {formatTime(new Date(event.endTime))}
-                  </Text>
-                  
-                  {event.description && (
-                    <Text style={[styles.eventDescription, { color: theme.inactive }]} numberOfLines={2}>
-                      {event.description}
-                    </Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))
-          ) : (
-            <EmptyState
-              icon="calendar"
-              title="Aucun événement à venir"
-              message="Il n'y a pas d'événements prévus dans les prochains jours."
-            />
-          )}
-        </View>
-      </ScrollView>
+        
+        <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
+      </TouchableOpacity>
     );
   };
 
   return (
-    <AppLayout
+    <AppLayout 
       hideMenuButton={true}
       onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
           title="Calendrier 📅"
           onTitlePress={() => toggleSidebar?.()}
           rightComponent={
-            <TouchableOpacity 
-              style={styles.addButton}
-              onPress={handleAddEvent}
-            >
-              <Plus size={24} color={theme.text} />
-            </TouchableOpacity>
+            isAdminOrModerator && (
+              <Button
+                icon={<Plus size={24} color={theme.text} />}
+                onPress={handleAddEvent}
+                variant="text"
+                style={styles.addButton}
+              />
+            )
           }
+          containerStyle={styles.headerContainer}
         />
 
-        {renderContent()}
-      </View>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <Calendar 
+            onSelectDate={handleSelectDate} 
+            selectedDate={selectedDate}
+          />
+          
+          <View style={styles.selectedDateContainer}>
+            <CalendarIcon size={20} color={theme.primary} style={styles.selectedDateIcon} />
+            <Text style={[styles.selectedDateText, { color: theme.text }]}>
+              {formatEventDate(selectedDate)}
+            </Text>
+          </View>
+          
+          <View style={styles.eventsContainer}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Événements du jour
+            </Text>
+            
+            {events.length > 0 ? (
+              <FlatList
+                data={events}
+                renderItem={renderEventItem}
+                keyExtractor={(item) => item.id}
+                scrollEnabled={false}
+                contentContainerStyle={styles.eventsList}
+              />
+            ) : (
+              <View style={styles.emptyStateContainer}>
+                <EmptyState
+                  icon="calendar"
+                  title="Aucun événement"
+                  message="Il n'y a pas d'événements prévus pour cette date."
+                  style={styles.emptyState}
+                />
+              </View>
+            )}
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     </AppLayout>
   );
 }
@@ -264,87 +209,59 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  headerContainer: {
+    marginTop: -8, // Added to match home page header margin
+  },
   addButton: {
     padding: 8,
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    marginTop: 16,
-    textAlign: 'center',
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 20,
-  },
-  errorText: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 16,
-  },
-  retryButton: {
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  content: {
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
-    padding: 16,
+    padding: 20,
+    paddingTop: 0, // Adjusted to match the "Accueil" page margin
   },
-  calendarCard: {
-    marginBottom: 24,
+  selectedDateContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    marginTop: 12, // Adjusted for better spacing
   },
-  section: {
+  selectedDateIcon: {
+    marginRight: 8,
+  },
+  selectedDateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    textTransform: 'capitalize',
+  },
+  eventsContainer: {
     marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
-    marginBottom: 16,
-    textTransform: 'capitalize',
+    marginBottom: 12,
+  },
+  eventsList: {
+    gap: 12,
   },
   eventItem: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
+    overflow: 'hidden',
+    padding: 12,
+    elevation: 2, // Added subtle shadow for Android
+    shadowColor: '#000', // Added subtle shadow for iOS
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  eventColor: {
+  eventColorIndicator: {
     width: 4,
-    height: '80%',
-    borderRadius: 2,
-    marginRight: 12,
-  },
-  eventDate: {
-    alignItems: 'center',
-    width: 40,
-    marginRight: 12,
-  },
-  eventDay: {
-    fontSize: 18,
-    fontWeight: 'bold',
-  },
-  eventMonth: {
-    fontSize: 12,
-    textTransform: 'uppercase',
-  },
-  eventSeparator: {
-    width: 2,
-    height: '80%',
+    height: '100%',
     marginRight: 12,
   },
   eventContent: {
@@ -355,12 +272,26 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     marginBottom: 4,
   },
-  eventTime: {
-    fontSize: 14,
-    marginBottom: 4,
+  eventDetails: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
   },
-  eventDescription: {
+  eventDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  eventDetailIcon: {
+    marginRight: 4,
+  },
+  eventDetailText: {
     fontSize: 12,
-    lineHeight: 16,
+  },
+  emptyStateContainer: {
+    width: '100%',
+  },
+  emptyState: {
+    marginTop: 20,
+    marginBottom: 20,
   },
 });

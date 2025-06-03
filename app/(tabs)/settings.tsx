@@ -1,240 +1,276 @@
 import React, { useState } from 'react';
 import { 
+  StyleSheet, 
   View, 
   Text, 
-  StyleSheet, 
   ScrollView, 
-  TouchableOpacity, 
+  TouchableOpacity,
   Switch,
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
   User, 
+  Lock, 
   Bell, 
-  Moon, 
-  Sun, 
   Palette, 
   Shield, 
   HelpCircle, 
   LogOut,
   ChevronRight,
+  Moon,
+  Sun,
   Settings as SettingsIcon,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
+import { Card } from '@/components/Card';
+import { Divider } from '@/components/Divider';
+import { Avatar } from '@/components/Avatar';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
-import { Card } from '@/components/Card';
-import { ListItem } from '@/components/ListItem';
-import { Divider } from '@/components/Divider';
 
 export default function SettingsScreen() {
   const router = useRouter();
   const { user, logout } = useAuthStore();
-  const { darkMode, toggleDarkMode, notifications, toggleNotifications } = useSettingsStore();
+  const { darkMode, toggleDarkMode, appName, appVersion } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const appColors = useAppColors();
-  
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
-
+  
+  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
+  
   const handleLogout = () => {
     Alert.alert(
       'Déconnexion',
       'Êtes-vous sûr de vouloir vous déconnecter ?',
       [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Déconnexion',
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Se déconnecter', 
           style: 'destructive',
           onPress: () => {
             logout();
             router.replace('/login');
-          },
-        },
+          }
+        }
       ]
     );
   };
-
-  const settingsGroups = [
+  
+  const settingsItems = [
     {
-      title: 'Profil',
-      items: [
-        {
-          icon: <User size={20} color={theme.text} />,
-          title: 'Mon profil',
-          subtitle: 'Modifier vos informations personnelles',
-          onPress: () => router.push('/profile'),
-          showChevron: true,
-        },
-      ],
+      id: 'profile',
+      title: 'Mon profil',
+      subtitle: 'Modifier mes informations personnelles',
+      icon: <User size={24} color={theme.primary} />,
+      onPress: () => router.push('/profile/edit'),
+      showChevron: true,
     },
     {
-      title: 'Préférences',
-      items: [
-        {
-          icon: darkMode ? <Moon size={20} color={theme.text} /> : <Sun size={20} color={theme.text} />,
-          title: 'Mode sombre',
-          subtitle: 'Activer le thème sombre',
-          rightComponent: (
-            <Switch
-              value={darkMode}
-              onValueChange={toggleDarkMode}
-              trackColor={{ false: theme.border, true: appColors.primary }}
-              thumbColor={darkMode ? '#ffffff' : '#f4f3f4'}
-            />
-          ),
-        },
-        {
-          icon: <Bell size={20} color={theme.text} />,
-          title: 'Notifications',
-          subtitle: 'Recevoir des notifications push',
-          rightComponent: (
-            <Switch
-              value={notifications}
-              onValueChange={toggleNotifications}
-              trackColor={{ false: theme.border, true: appColors.primary }}
-              thumbColor={notifications ? '#ffffff' : '#f4f3f4'}
-            />
-          ),
-        },
-        {
-          icon: <Palette size={20} color={theme.text} />,
-          title: 'Apparence',
-          subtitle: 'Personnaliser l\'interface',
-          onPress: () => router.push('/admin/appearance'),
-          showChevron: true,
-        },
-      ],
+      id: 'password',
+      title: 'Mot de passe',
+      subtitle: 'Changer mon mot de passe',
+      icon: <Lock size={24} color={theme.primary} />,
+      onPress: () => router.push('/profile/change-password'),
+      showChevron: true,
+    },
+    {
+      id: 'notifications',
+      title: 'Notifications',
+      subtitle: 'Gérer mes préférences de notification',
+      icon: <Bell size={24} color={theme.primary} />,
+      onPress: () => router.push('/notifications'),
+      showChevron: true,
+    },
+    {
+      id: 'appearance',
+      title: 'Apparence',
+      subtitle: 'Thème sombre',
+      icon: darkMode ? <Moon size={24} color={theme.primary} /> : <Sun size={24} color={theme.primary} />,
+      onPress: toggleDarkMode,
+      showChevron: false,
+      rightComponent: (
+        <Switch
+          value={darkMode}
+          onValueChange={toggleDarkMode}
+          trackColor={{ false: '#767577', true: `${theme.primary}80` }}
+          thumbColor={darkMode ? theme.primary : '#f4f3f4'}
+        />
+      ),
     },
   ];
-
-  // Add admin settings if user is admin
-  if (user?.role === 'admin') {
-    settingsGroups.push({
-      title: 'Administration',
-      items: [
-        {
-          icon: <Shield size={20} color={theme.text} />,
-          title: 'Panneau d\'administration',
-          subtitle: 'Gérer l\'application',
-          onPress: () => router.push('/admin'),
-          showChevron: true,
-        },
-      ],
-    });
-  }
-
-  settingsGroups.push({
-    title: 'Support',
-    items: [
-      {
-        icon: <HelpCircle size={20} color={theme.text} />,
-        title: 'Aide et support',
-        subtitle: 'Obtenir de l\'aide',
-        onPress: () => Alert.alert('Aide', 'Fonctionnalité à venir'),
-        showChevron: true,
+  
+  const adminItems = [
+    {
+      id: 'admin-panel',
+      title: 'Panneau d\'administration',
+      subtitle: 'Gérer l\'application',
+      icon: <Shield size={24} color={theme.secondary} />,
+      onPress: () => router.push('/admin'),
+      showChevron: true,
+    },
+  ];
+  
+  const supportItems = [
+    {
+      id: 'help',
+      title: 'Aide et support',
+      subtitle: 'Obtenir de l\'aide',
+      icon: <HelpCircle size={24} color={theme.info} />,
+      onPress: () => {
+        Alert.alert('Aide', 'Contactez l\'administrateur pour obtenir de l\'aide.');
       },
-    ],
-  });
-
-  settingsGroups.push({
-    title: 'Compte',
-    items: [
-      {
-        icon: <LogOut size={20} color="#e03131" />,
-        title: 'Déconnexion',
-        subtitle: 'Se déconnecter de l\'application',
-        onPress: handleLogout,
-        titleColor: '#e03131',
-      },
-    ],
-  });
-
+      showChevron: true,
+    },
+    {
+      id: 'logout',
+      title: 'Se déconnecter',
+      subtitle: 'Quitter l\'application',
+      icon: <LogOut size={24} color={theme.error} />,
+      onPress: handleLogout,
+      showChevron: false,
+      isDestructive: true,
+    },
+  ];
+  
+  const renderSettingsItem = (item: any) => (
+    <TouchableOpacity
+      key={item.id}
+      style={[
+        styles.settingsItem,
+        item.isDestructive && { backgroundColor: `${theme.error}10` }
+      ]}
+      onPress={item.onPress}
+    >
+      <View style={styles.settingsItemLeft}>
+        {item.icon}
+        <View style={styles.settingsItemText}>
+          <Text 
+            style={[
+              styles.settingsItemTitle, 
+              { color: item.isDestructive ? theme.error : theme.text }
+            ]}
+          >
+            {item.title}
+          </Text>
+          <Text 
+            style={[
+              styles.settingsItemSubtitle, 
+              { color: item.isDestructive ? theme.error : (darkMode ? theme.inactive : '#666666') }
+            ]}
+          >
+            {item.subtitle}
+          </Text>
+        </View>
+      </View>
+      
+      <View style={styles.settingsItemRight}>
+        {item.rightComponent}
+        {item.showChevron && (
+          <ChevronRight 
+            size={20} 
+            color={item.isDestructive ? theme.error : (darkMode ? theme.inactive : '#999999')} 
+          />
+        )}
+      </View>
+    </TouchableOpacity>
+  );
+  
   return (
-    <AppLayout
+    <AppLayout 
       hideMenuButton={true}
       onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
           title="Réglages ⚙️"
           onTitlePress={() => toggleSidebar?.()}
+          containerStyle={styles.headerContainer}
         />
-
-        <ScrollView
-          style={styles.content}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* User Info Card */}
+        
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          {/* Profile Card */}
           {user && (
-            <Card style={styles.userCard}>
-              <View style={styles.userInfo}>
-                <View style={[styles.userAvatar, { backgroundColor: appColors.primary }]}>
-                  <Text style={styles.userInitials}>
-                    {user.firstName?.[0]?.toUpperCase() || user.email[0].toUpperCase()}
-                    {user.lastName?.[0]?.toUpperCase() || ''}
+            <Card style={styles.profileCard}>
+              <TouchableOpacity 
+                style={styles.profileContent}
+                onPress={() => router.push('/profile/edit')}
+              >
+                <Avatar
+                  source={user.profileImage ? { uri: user.profileImage } : undefined}
+                  name={`${user.firstName} ${user.lastName}`}
+                  size={60}
+                />
+                <View style={styles.profileInfo}>
+                  <Text style={[styles.profileName, { color: theme.text }]}>
+                    {user.firstName} {user.lastName}
                   </Text>
-                </View>
-                
-                <View style={styles.userDetails}>
-                  <Text style={[styles.userName, { color: theme.text }]}>
-                    {user.firstName && user.lastName 
-                      ? `${user.firstName} ${user.lastName}`
-                      : user.email
-                    }
-                  </Text>
-                  <Text style={[styles.userEmail, { color: theme.inactive }]}>
+                  <Text style={[styles.profileEmail, { color: darkMode ? theme.inactive : '#666666' }]}>
                     {user.email}
                   </Text>
-                  <Text style={[styles.userRole, { color: appColors.primary }]}>
+                  <Text style={[styles.profileRole, { color: theme.primary }]}>
                     {user.role === 'admin' ? 'Administrateur' : 
-                     user.role === 'moderator' ? 'Modérateur' : 'Utilisateur'}
+                     user.role === 'moderator' ? 'Modérateur' : 
+                     user.role === 'committee' ? 'Membre du comité' : 'Membre'}
                   </Text>
                 </View>
-              </View>
+                <ChevronRight size={20} color={darkMode ? theme.inactive : '#999999'} />
+              </TouchableOpacity>
             </Card>
           )}
-
-          {/* Settings Groups */}
-          {settingsGroups.map((group, groupIndex) => (
-            <View key={groupIndex} style={styles.settingsGroup}>
-              <Text style={[styles.groupTitle, { color: theme.inactive }]}>
-                {group.title}
+          
+          {/* General Settings */}
+          <Card style={styles.settingsCard}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Général
+            </Text>
+            {settingsItems.map((item, index) => (
+              <View key={item.id}>
+                {renderSettingsItem(item)}
+                {index < settingsItems.length - 1 && <Divider style={styles.divider} />}
+              </View>
+            ))}
+          </Card>
+          
+          {/* Admin Settings */}
+          {isAdminOrModerator && (
+            <Card style={styles.settingsCard}>
+              <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                Administration
               </Text>
-              
-              <Card style={styles.groupCard}>
-                {group.items.map((item, itemIndex) => (
-                  <React.Fragment key={itemIndex}>
-                    <ListItem
-                      leftIcon={item.icon}
-                      title={item.title}
-                      subtitle={item.subtitle}
-                      rightComponent={item.rightComponent}
-                      showChevron={item.showChevron}
-                      onPress={item.onPress}
-                      titleStyle={item.titleColor ? { color: item.titleColor } : undefined}
-                    />
-                    {itemIndex < group.items.length - 1 && <Divider />}
-                  </React.Fragment>
-                ))}
-              </Card>
-            </View>
-          ))}
-
-          {/* App Version */}
-          <View style={styles.versionContainer}>
-            <Text style={[styles.versionText, { color: theme.inactive }]}>
-              Version 1.0.0
+              {adminItems.map((item, index) => (
+                <View key={item.id}>
+                  {renderSettingsItem(item)}
+                  {index < adminItems.length - 1 && <Divider style={styles.divider} />}
+                </View>
+              ))}
+            </Card>
+          )}
+          
+          {/* Support Settings */}
+          <Card style={styles.settingsCard}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>
+              Support
+            </Text>
+            {supportItems.map((item, index) => (
+              <View key={item.id}>
+                {renderSettingsItem(item)}
+                {index < supportItems.length - 1 && <Divider style={styles.divider} />}
+              </View>
+            ))}
+          </Card>
+          
+          {/* App Info */}
+          <View style={styles.appInfo}>
+            <Text style={[styles.appInfoText, { color: darkMode ? theme.inactive : '#666666' }]}>
+              {appName} v{appVersion}
             </Text>
           </View>
         </ScrollView>
-      </View>
+      </SafeAreaView>
     </AppLayout>
   );
 }
@@ -243,69 +279,88 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  content: {
+  headerContainer: {
+    paddingHorizontal: 16,
+  },
+  scrollView: {
     flex: 1,
   },
   scrollContent: {
     padding: 16,
+    paddingTop: 0,
   },
-  userCard: {
-    marginBottom: 24,
+  profileCard: {
+    marginBottom: 16,
   },
-  userInfo: {
+  profileContent: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
   },
-  userAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 16,
-  },
-  userInitials: {
-    color: '#ffffff',
-    fontSize: 20,
-    fontWeight: 'bold',
-  },
-  userDetails: {
+  profileInfo: {
     flex: 1,
+    marginLeft: 16,
   },
-  userName: {
+  profileName: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 4,
   },
-  userEmail: {
+  profileEmail: {
     fontSize: 14,
     marginBottom: 4,
   },
-  userRole: {
+  profileRole: {
     fontSize: 12,
     fontWeight: '500',
     textTransform: 'uppercase',
   },
-  settingsGroup: {
-    marginBottom: 24,
+  settingsCard: {
+    marginBottom: 16,
   },
-  groupTitle: {
-    fontSize: 14,
+  sectionTitle: {
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
-    marginLeft: 4,
-    textTransform: 'uppercase',
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
-  groupCard: {
-    padding: 0,
-  },
-  versionContainer: {
+  settingsItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 24,
-    marginBottom: 40,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
-  versionText: {
+  settingsItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  settingsItemText: {
+    marginLeft: 16,
+    flex: 1,
+  },
+  settingsItemTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    marginBottom: 2,
+  },
+  settingsItemSubtitle: {
+    fontSize: 14,
+  },
+  settingsItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  divider: {
+    marginHorizontal: 16,
+  },
+  appInfo: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  appInfoText: {
     fontSize: 12,
   },
 });

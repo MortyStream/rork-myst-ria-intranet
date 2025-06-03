@@ -1,19 +1,19 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Platform } from 'react-native';
 import { 
   Home, 
   Users, 
   BookOpen, 
+  Link,
   Bell,
+  Settings,
   CheckSquare,
   Calendar,
-  Link,
-  Settings
 } from 'lucide-react-native';
 import { useSettingsStore } from '@/store/settings-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { Colors, useAppColors } from '@/constants/colors';
+import { Platform } from 'react-native';
 
 export default function TabLayout() {
   const { darkMode } = useSettingsStore();
@@ -22,7 +22,7 @@ export default function TabLayout() {
   const appColors = useAppColors();
   
   const unreadCount = getUnreadCount();
-  
+
   return (
     <Tabs
       screenOptions={{
@@ -31,15 +31,18 @@ export default function TabLayout() {
           backgroundColor: theme.card,
           borderTopColor: theme.border,
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 20 : 5,
-          paddingTop: 5,
-          height: Platform.OS === 'ios' ? 85 : 60,
+          height: Platform.OS === 'ios' ? 88 : 68,
+          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+          paddingTop: 8,
         },
         tabBarActiveTintColor: appColors.primary,
-        tabBarInactiveTintColor: theme.inactive,
+        tabBarInactiveTintColor: darkMode ? theme.inactive : '#666666',
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '500',
+        },
+        tabBarIconStyle: {
+          marginBottom: 4,
         },
       }}
     >

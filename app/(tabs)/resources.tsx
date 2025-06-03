@@ -1,77 +1,156 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Text } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { 
+  StyleSheet, 
+  View, 
+  Text, 
+  FlatList, 
+  TouchableOpacity,
+  RefreshControl,
+  Alert,
+} from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { Plus, Search, Folder, FileText, Link as LinkIcon } from 'lucide-react-native';
+import { useAuthStore } from '@/store/auth-store';
 import { useResourcesStore } from '@/store/resources-store';
-import { ResourceCategory } from '@/types/resource';
-import { ResourceItemList } from '@/components/ResourceItemList';
-import { EmptyState } from '@/components/EmptyState';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
-import { Header } from '@/components/Header';
+import { ResourceListItem } from '@/components/ResourceListItem';
+import { EmptyState } from '@/components/EmptyState';
+import { Input } from '@/components/Input';
+import { Button } from '@/components/Button';
+import { ResourceCategory } from '@/types/resource';
 import { AppLayout } from '@/components/AppLayout';
+import { Header } from '@/components/Header';
 
 export default function ResourcesScreen() {
   const router = useRouter();
+  const { user } = useAuthStore();
+  const { categories, initializeResources } = useResourcesStore();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
-  const [categories, setCategories] = useState<ResourceCategory[]>([]);
+  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
-  const { getVisibleCategories, isLoading, initializeCategories } = useResourcesStore();
-
+  
+  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
+  
   useEffect(() => {
-    initializeCategories();
-    loadCategories();
+    initializeResources();
   }, []);
-
-  const loadCategories = async () => {
-    const visibleCategories = await getVisibleCategories();
-    setCategories(visibleCategories);
+  
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    initializeResources();
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
+  
+  const handleAddCategory = () => {
+    router.push('/admin/category-form');
   };
-
-  const handleSidebarToggle = (toggle: () => void) => {
-    setToggleSidebar(() => toggle);
+  
+  const handleCategoryPress = (category: ResourceCategory) => {
+    router.push(`/resources/${category.id}`);
   };
-
+  
+  // Filter categories based on search query
+  const filteredCategories = categories.filter(category => 
+    category.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+  
+  // Sort categories by order
+  const sortedCategories = [...filteredCategories].sort((a, b) => a.order - b.order);
+  
+  const renderCategoryItem = ({ item }: { item: ResourceCategory }) => (
+    <TouchableOpacity
+      style={[styles.categoryItem, { backgroundColor: theme.card }]}
+      onPress={() => handleCategoryPress(item)}
+    >
+      <View style={styles.categoryIcon}>
+        <Text style={styles.categoryEmoji}>{item.icon}</Text>
+      </View>
+      
+      <View style={styles.categoryContent}>
+        <Text style={[styles.categoryTitle, { color: theme.text }]}>
+          {item.name}
+        </Text>
+        <Text style={[styles.categoryDescription, { color: darkMode ? theme.inactive : '#666666' }]}>
+          {item.description}
+        </Text>
+      </View>
+      
+      <View style={styles.categoryMeta}>
+        <Text style={[styles.categoryItemCount, { color: darkMode ? theme.inactive : '#666666' }]}>
+          {item.items?.length || 0} éléments
+        </Text>
+      </View>
+    </TouchableOpacity>
+  );
+  
   return (
     <AppLayout 
       hideMenuButton={true}
-      onSidebarToggle={handleSidebarToggle}
+      onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
-          title="La Bible 📚"
+          title="La Bible 📖"
           onTitlePress={() => toggleSidebar?.()}
+          rightComponent={
+            isAdminOrModerator && (
+              <Button
+                icon={<Plus size={24} color={theme.text} />}
+                onPress={handleAddCategory}
+                variant="text"
+                style={styles.addButton}
+              />
+            )
+          }
+          containerStyle={styles.headerContainer}
         />
-
-        <View style={[styles.header, { backgroundColor: theme.card }]}>
-          <Text style={[styles.subtitle, { color: theme.inactive }]}>
-            Accédez à toute la documentation du projet
-          </Text>
+        
+        <View style={styles.searchContainer}>
+          <Input
+            placeholder="Rechercher une catégorie..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            leftIcon={<Search size={20} color={darkMode ? '#ffffff' : '#333333'} />}
+            containerStyle={styles.searchInput}
+          />
         </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-          {categories.length > 0 ? (
-            <View style={styles.listContainer}>
-              {categories.map((category) => (
-                <ResourceItemList
-                  key={category.id}
-                  category={category}
-                />
-              ))}
-            </View>
-          ) : (
-            <EmptyState
-              title="Aucune catégorie disponible"
-              message="Il n'y a pas encore de catégories disponibles."
-              icon="database"
-            />
-          )}
-        </ScrollView>
-      </View>
+        
+        {sortedCategories.length > 0 ? (
+          <FlatList
+            data={sortedCategories}
+            renderItem={renderCategoryItem}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                colors={[theme.primary]}
+                tintColor={theme.primary}
+              />
+            }
+            showsVerticalScrollIndicator={false}
+          />
+        ) : (
+          <EmptyState
+            icon="book-open"
+            title="Aucune catégorie trouvée"
+            message={
+              searchQuery
+                ? "Aucune catégorie ne correspond à votre recherche"
+                : "Il n'y a pas encore de catégories de ressources"
+            }
+            style={styles.emptyState}
+          />
+        )}
+      </SafeAreaView>
     </AppLayout>
   );
 }
@@ -80,25 +159,66 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  header: {
+  headerContainer: {
+    paddingHorizontal: 16,
+  },
+  addButton: {
+    padding: 8,
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    marginBottom: 0,
+  },
+  listContent: {
     padding: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+    paddingTop: 0,
   },
-  subtitle: {
-    fontSize: 14,
+  categoryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
   },
-  scrollView: {
+  categoryIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+  },
+  categoryEmoji: {
+    fontSize: 24,
+  },
+  categoryContent: {
     flex: 1,
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingVertical: 6,
+  categoryTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
   },
-  listContainer: {
-    paddingHorizontal: 16,
-    gap: 6,
+  categoryDescription: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  categoryMeta: {
+    alignItems: 'flex-end',
+  },
+  categoryItemCount: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  emptyState: {
+    marginTop: 40,
   },
 });

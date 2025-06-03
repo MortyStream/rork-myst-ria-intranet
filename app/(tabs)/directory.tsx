@@ -12,6 +12,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { UserPlus, Search } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useUsersStore } from '@/store/users-store';
@@ -181,7 +182,7 @@ export default function DirectoryScreen() {
       hideMenuButton={true}
       onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
-      <View style={[styles.container, { backgroundColor: theme.background }]}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
           title="Annuaire 📇"
           onTitlePress={() => toggleSidebar?.()}
@@ -212,7 +213,7 @@ export default function DirectoryScreen() {
           />
         </View>
         {renderContent()}
-      </View>
+      </SafeAreaView>
     </AppLayout>
   );
 }

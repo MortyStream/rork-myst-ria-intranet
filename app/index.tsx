@@ -18,6 +18,6 @@ export default function Index() {
     return <Redirect href="/login" />;
   }
   
-  // If authenticated, redirect to directory
-  return <Redirect href="/directory" />;
+  // If authenticated, redirect to home tab (default tab)
+  return <Redirect href="/(tabs)" />;
 }

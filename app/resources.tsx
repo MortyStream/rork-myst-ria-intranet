@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Text } from 'react-native';
-import { Stack, useRouter } from 'expo-router';
+import React, { useEffect, useState, useRef } from 'react';
+import { View, StyleSheet, ScrollView, Text, TouchableOpacity } from 'react-native';
+import { Stack } from 'expo-router';
 import { useResourcesStore } from '@/store/resources-store';
 import { ResourceCategory } from '@/types/resource';
 import { ResourceItemList } from '@/components/ResourceItemList';
@@ -8,16 +8,14 @@ import { EmptyState } from '@/components/EmptyState';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Header } from '@/components/Header';
 import { AppLayout } from '@/components/AppLayout';
 
 export default function ResourcesScreen() {
-  const router = useRouter();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const [categories, setCategories] = useState<ResourceCategory[]>([]);
-  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
   const { getVisibleCategories, isLoading } = useResourcesStore();
+  const toggleSidebarRef = useRef<() => void>();
 
   useEffect(() => {
     loadCategories();
@@ -28,14 +26,18 @@ export default function ResourcesScreen() {
     setCategories(visibleCategories);
   };
 
-  const handleSidebarToggle = (toggle: () => void) => {
-    setToggleSidebar(() => toggle);
+  const handleTitlePress = () => {
+    if (toggleSidebarRef.current) {
+      toggleSidebarRef.current();
+    }
   };
 
   return (
     <AppLayout 
       hideMenuButton={true}
-      onSidebarToggle={handleSidebarToggle}
+      onSidebarToggle={(toggle) => {
+        toggleSidebarRef.current = toggle;
+      }}
     >
       <SafeAreaView 
         style={[
@@ -44,17 +46,30 @@ export default function ResourcesScreen() {
         ]}
         edges={['left', 'right']}
       >
-        <Header
-          title="La Bible 📚"
-          noLeftMargin
-          onTitlePress={toggleSidebar || undefined}
+        <Stack.Screen
+          options={{
+            title: 'La Bible 📚',
+            headerStyle: {
+              backgroundColor: theme.background,
+            },
+            headerTintColor: theme.text,
+          }}
         />
 
-        <View style={[styles.header, { backgroundColor: theme.card }]}>
+        <TouchableOpacity 
+          style={[styles.header, { backgroundColor: theme.card }]}
+          onPress={handleTitlePress}
+          activeOpacity={0.7}
+        >
+          <Text 
+            style={[styles.title, { color: theme.text }]}
+          >
+            La Bible 📚
+          </Text>
           <Text style={[styles.subtitle, { color: theme.inactive }]}>
             Accédez à toute la documentation du projet
           </Text>
-        </View>
+        </TouchableOpacity>
 
         <ScrollView
           style={styles.scrollView}
@@ -93,6 +108,11 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.1)',
+  },
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    marginBottom: 4,
   },
   subtitle: {
     fontSize: 14,

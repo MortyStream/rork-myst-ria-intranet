@@ -42,7 +42,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (isLoading) return;
     
-    const inTabsGroup = segments[0] === '(tabs)';
+    const inAuthGroup = segments[0] === '(auth)';
     const isLoginScreen = segments[0] === 'login' || segments[0] === 'forgot-password';
     
     // If user is not authenticated and not on login screen, redirect to login
@@ -62,9 +62,9 @@ export default function RootLayout() {
       });
     }
     
-    // If user is authenticated and on login screen, redirect to tabs
+    // If user is authenticated and on login screen, redirect to home
     if (isAuthenticated && isLoginScreen) {
-      router.replace('/(tabs)');
+      router.replace('/');
     }
   }, [isAuthenticated, segments, isLoading]);
   

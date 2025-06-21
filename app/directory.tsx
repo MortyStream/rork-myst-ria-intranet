@@ -8,8 +8,6 @@ import {
   Alert,
   ScrollView,
   RefreshControl,
-  FlatList,
-  Dimensions,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,11 +19,8 @@ import { Colors } from '@/constants/colors';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
-import { UserGridItem } from '@/components/UserGridItem';
+import { UserListItem } from '@/components/UserListItem';
 import { EmptyState } from '@/components/EmptyState';
-
-const { width } = Dimensions.get('window');
-const ITEM_SIZE = (width - 48) / 3; // 3 items per row with padding
 
 export default function DirectoryScreen() {
   const router = useRouter();
@@ -103,18 +98,6 @@ export default function DirectoryScreen() {
     a.lastName.localeCompare(b.lastName)
   );
   
-  const renderUserItem = ({ item, index }: { item: any; index: number }) => (
-    <UserGridItem
-      user={item}
-      onPress={() => handleUserPress(item.id)}
-      size={ITEM_SIZE}
-      style={{
-        marginRight: (index + 1) % 3 === 0 ? 0 : 8,
-        marginBottom: 16,
-      }}
-    />
-  );
-  
   const renderContent = () => {
     if (isLoading && !isRefreshing) {
       return (
@@ -158,12 +141,9 @@ export default function DirectoryScreen() {
     }
 
     return (
-      <FlatList
-        data={sortedUsers}
-        renderItem={renderUserItem}
-        keyExtractor={(item) => item.id}
-        numColumns={3}
-        contentContainerStyle={styles.gridContent}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
         refreshControl={
           <RefreshControl
             refreshing={isRefreshing}
@@ -172,8 +152,15 @@ export default function DirectoryScreen() {
             tintColor={theme.primary}
           />
         }
-        showsVerticalScrollIndicator={false}
-      />
+      >
+        {sortedUsers.map(user => (
+          <UserListItem
+            key={user.id}
+            user={user}
+            onPress={() => handleUserPress(user.id)}
+          />
+        ))}
+      </ScrollView>
     );
   };
   
@@ -270,7 +257,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  gridContent: {
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
     padding: 16,
   },
 });

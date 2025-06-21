@@ -30,7 +30,7 @@ import { Colors } from '@/constants/colors';
 import { ResourceItem, ResourceItemType } from '@/types/resource';
 import { EmptyState } from '@/components/EmptyState';
 import { Card } from '@/components/Card';
-import { Header } from '@/components/Header';
+import { AppLayout } from '@/components/AppLayout';
 
 export default function ResourceCategoryScreen() {
   const router = useRouter();
@@ -90,7 +90,7 @@ export default function ResourceCategoryScreen() {
       setFolderPath(newPath);
       setCurrentFolder(lastFolder?.id || null);
     } else {
-      router.push('/resources');
+      router.back();
     }
   };
 
@@ -225,114 +225,135 @@ export default function ResourceCategoryScreen() {
     </Card>
   );
 
-  const renderBreadcrumbs = () => {
-    if (folderPath.length === 0) return null;
-    
-    return (
-      <View style={styles.breadcrumbs}>
+  const renderHeader = () => (
+    <View style={styles.header}>
+      {folderPath.length > 0 && (
         <TouchableOpacity
-          onPress={() => {
-            setFolderPath([]);
-            setCurrentFolder(null);
-          }}
+          style={[styles.backButton, { backgroundColor: theme.card }]}
+          onPress={navigateBack}
         >
-          <Text style={[styles.breadcrumbItem, { color: theme.primary }]}>
-            {category?.name}
+          <ChevronLeft size={20} color={theme.primary} />
+          <Text style={[styles.backButtonText, { color: theme.text }]}>
+            Retour
           </Text>
         </TouchableOpacity>
-        
-        {folderPath.map((folder, index) => (
-          <React.Fragment key={index}>
-            <Text style={{ color: theme.inactive }}> / </Text>
-            {index < folderPath.length - 1 ? (
-              <TouchableOpacity
-                onPress={() => {
-                  const newPath = folderPath.slice(0, index + 1);
-                  setFolderPath(newPath);
-                  setCurrentFolder(newPath[newPath.length - 1].id);
-                }}
-              >
-                <Text style={[styles.breadcrumbItem, { color: theme.primary }]}>
+      )}
+      
+      {folderPath.length > 0 && (
+        <View style={styles.breadcrumbs}>
+          <TouchableOpacity
+            onPress={() => {
+              setFolderPath([]);
+              setCurrentFolder(null);
+            }}
+          >
+            <Text style={[styles.breadcrumbItem, { color: theme.primary }]}>
+              {category?.name}
+            </Text>
+          </TouchableOpacity>
+          
+          {folderPath.map((folder, index) => (
+            <React.Fragment key={index}>
+              <Text style={{ color: theme.inactive }}> / </Text>
+              {index < folderPath.length - 1 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    const newPath = folderPath.slice(0, index + 1);
+                    setFolderPath(newPath);
+                    setCurrentFolder(newPath[newPath.length - 1].id);
+                  }}
+                >
+                  <Text style={[styles.breadcrumbItem, { color: theme.primary }]}>
+                    {folder.name}
+                  </Text>
+                </TouchableOpacity>
+              ) : (
+                <Text style={[styles.breadcrumbItem, { color: theme.text }]}>
                   {folder.name}
                 </Text>
-              </TouchableOpacity>
-            ) : (
-              <Text style={[styles.breadcrumbItem, { color: theme.text }]}>
-                {folder.name}
-              </Text>
-            )}
-          </React.Fragment>
-        ))}
-      </View>
-    );
-  };
+              )}
+            </React.Fragment>
+          ))}
+        </View>
+      )}
+      
+      {canManageItems && (
+        <TouchableOpacity
+          style={[styles.addButton, { backgroundColor: theme.primary }]}
+          onPress={handleAddItem}
+        >
+          <Plus size={20} color="#ffffff" />
+          <Text style={styles.addButtonText}>Ajouter</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
 
   if (!category) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <Header 
-          title="Catégorie introuvable"
-          showBackButton
-          onBackPress={() => router.push('/resources')}
+        <Stack.Screen
+          options={{
+            title: 'Catégorie introuvable',
+            headerStyle: {
+              backgroundColor: theme.background,
+            },
+            headerTintColor: theme.text,
+          }}
         />
         <EmptyState
           title="Catégorie introuvable"
           message="La catégorie que vous recherchez n'existe pas ou a été supprimée."
           icon="alert"
           actionLabel="Retour aux catégories"
-          onAction={() => router.push('/resources')}
+          onAction={() => router.back()}
         />
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-      <Header 
-        title={category.name}
-        showBackButton
-        onBackPress={navigateBack}
-        rightComponent={
-          canManageItems ? (
-            <TouchableOpacity
-              style={[styles.addButton, { backgroundColor: theme.primary }]}
-              onPress={handleAddItem}
-            >
-              <Plus size={20} color="#ffffff" />
-              <Text style={styles.addButtonText}>Ajouter</Text>
-            </TouchableOpacity>
-          ) : null
-        }
-      />
-      
-      {renderBreadcrumbs()}
-      
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.primary} />
-        </View>
-      ) : (
-        <FlatList
-          data={resourceItems}
-          keyExtractor={(item) => item.id}
-          renderItem={renderItem}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <EmptyState
-              title={currentFolder ? "Dossier vide" : "Aucun élément"}
-              message={currentFolder 
-                ? "Ce dossier ne contient aucun élément pour le moment."
-                : "Cette catégorie ne contient aucun élément pour le moment."
-              }
-              icon={<Folder size={48} color={theme.inactive} />}
-              actionLabel={canManageItems ? "Ajouter un élément" : undefined}
-              onAction={canManageItems ? handleAddItem : undefined}
-              style={styles.emptyState}
-            />
-          }
+    <AppLayout>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+        <Stack.Screen
+          options={{
+            title: category.name,
+            headerStyle: {
+              backgroundColor: theme.background,
+            },
+            headerTintColor: theme.text,
+          }}
         />
-      )}
-    </SafeAreaView>
+        
+        {renderHeader()}
+        
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color={theme.primary} />
+          </View>
+        ) : (
+          <FlatList
+            data={resourceItems}
+            keyExtractor={(item) => item.id}
+            renderItem={renderItem}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <EmptyState
+                title={currentFolder ? "Dossier vide" : "Aucun élément"}
+                message={currentFolder 
+                  ? "Ce dossier ne contient aucun élément pour le moment."
+                  : "Cette catégorie ne contient aucun élément pour le moment."
+                }
+                icon={<Folder size={48} color={theme.inactive} />}
+                actionLabel={canManageItems ? "Ajouter un élément" : undefined}
+                onAction={canManageItems ? handleAddItem : undefined}
+                style={styles.emptyState}
+              />
+            }
+          />
+        )}
+      </SafeAreaView>
+    </AppLayout>
   );
 }
 
@@ -340,12 +361,30 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  header: {
+    padding: 16,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+  },
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  backButtonText: {
+    marginLeft: 4,
+    fontWeight: '500',
+  },
   breadcrumbs: {
+    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    marginLeft: 8,
   },
   breadcrumbItem: {
     fontWeight: '500',
@@ -356,6 +395,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
+    marginLeft: 8,
   },
   addButtonText: {
     color: '#ffffff',
@@ -369,6 +409,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     padding: 16,
+    paddingTop: 0,
   },
   itemCard: {
     marginBottom: 8,

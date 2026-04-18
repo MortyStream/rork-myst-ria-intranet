@@ -1,277 +1,255 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient } from '@supabase/supabase-js';
 import { useSettingsStore } from '@/store/settings-store';
 
-// Initialize Supabase client
 let supabaseInstance = null;
 let supabaseAdminInstance = null;
 
-// Helper function to format Supabase errors
 const formatSupabaseError = (error) => {
   if (!error) return 'Unknown error';
-  
-  // If error is already a string, return it
   if (typeof error === 'string') return error;
-  
-  // Format PostgreSQL error
-  if (error.code && error.message) {
-    return `${error.message} (Code: ${error.code})${error.hint ? ` Hint: ${error.hint}` : ''}`;
+  if (error instanceof Error) return error.message;
+  if (typeof error?.message === 'string') return error.message;
+
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return 'Unknown error';
   }
-  
-  // Format other errors
-  return error.message || JSON.stringify(error);
 };
 
-// Function to get or create the Supabase client
+const createResponse = (data = null, error = null, count = null) => ({ data, error, count });
+
+const createSingleResponse = (record = null) => {
+  if (record) {
+    return createResponse(record, null);
+  }
+
+  return createResponse(null, { code: 'PGRST116', message: 'No rows found in preview mode' });
+};
+
+const createChain = (tableName) => {
+  const state = {
+    tableName,
+    filters: [],
+    payload: null,
+    action: 'select',
+  };
+
+  const chain = {
+    select: async (_columns, options) => {
+      console.log('[Preview Supabase] select', tableName, options ?? null);
+      if (options?.head && options?.count) {
+        return createResponse(null, null, 0);
+      }
+      return createResponse([], null);
+    },
+    insert(payload) {
+      console.log('[Preview Supabase] insert', tableName, payload);
+      state.action = 'insert';
+      state.payload = payload;
+      return chain;
+    },
+    update(payload) {
+      console.log('[Preview Supabase] update', tableName, payload);
+      state.action = 'update';
+      state.payload = payload;
+      return chain;
+    },
+    delete() {
+      console.log('[Preview Supabase] delete', tableName);
+      state.action = 'delete';
+      return chain;
+    },
+    upsert(payload) {
+      console.log('[Preview Supabase] upsert', tableName, payload);
+      state.action = 'upsert';
+      state.payload = payload;
+      return chain;
+    },
+    eq(column, value) {
+      state.filters.push({ type: 'eq', column, value });
+      return chain;
+    },
+    neq(column, value) {
+      state.filters.push({ type: 'neq', column, value });
+      return chain;
+    },
+    in(column, value) {
+      state.filters.push({ type: 'in', column, value });
+      return chain;
+    },
+    order(column, options) {
+      state.filters.push({ type: 'order', column, options });
+      return chain;
+    },
+    limit(value) {
+      state.filters.push({ type: 'limit', value });
+      return chain;
+    },
+    maybeSingle: async () => {
+      console.log('[Preview Supabase] maybeSingle', tableName, state);
+      if (state.action === 'insert') {
+        const inserted = Array.isArray(state.payload) ? state.payload[0] : state.payload;
+        return createResponse(inserted ?? null, null);
+      }
+      return createResponse(null, null);
+    },
+    single: async () => {
+      console.log('[Preview Supabase] single', tableName, state);
+      if (state.action === 'insert') {
+        const inserted = Array.isArray(state.payload) ? state.payload[0] : state.payload;
+        return createResponse(inserted ?? null, null);
+      }
+      if (state.action === 'update') {
+        return createResponse(state.payload ?? null, null);
+      }
+      return createSingleResponse(null);
+    },
+    then(onFulfilled, onRejected) {
+      const response = state.action === 'delete'
+        ? createResponse([], null)
+        : state.action === 'insert'
+          ? createResponse(Array.isArray(state.payload) ? state.payload : [state.payload], null)
+          : state.action === 'update'
+            ? createResponse(Array.isArray(state.payload) ? state.payload : [state.payload], null)
+            : createResponse([], null);
+
+      return Promise.resolve(response).then(onFulfilled, onRejected);
+    },
+  };
+
+  return chain;
+};
+
+const createPreviewClient = (mode) => ({
+  __preview: true,
+  __mode: mode,
+  from(tableName) {
+    console.log(`[Preview Supabase:${mode}] from`, tableName);
+    return createChain(tableName);
+  },
+  rpc: async (name, params) => {
+    console.log(`[Preview Supabase:${mode}] rpc`, name, params ?? null);
+    return createResponse(null, null);
+  },
+  auth: {
+    getSession: async () => {
+      console.log(`[Preview Supabase:${mode}] auth.getSession`);
+      return createResponse({ session: null }, null);
+    },
+    refreshSession: async () => {
+      console.log(`[Preview Supabase:${mode}] auth.refreshSession`);
+      return createResponse({ session: null }, null);
+    },
+    getUser: async () => {
+      console.log(`[Preview Supabase:${mode}] auth.getUser`);
+      return createResponse({ user: null }, null);
+    },
+    signInWithPassword: async (credentials) => {
+      console.log(`[Preview Supabase:${mode}] auth.signInWithPassword`, credentials?.email ?? 'unknown');
+      return createResponse(
+        { user: null, session: null },
+        { message: 'Connexion désactivée en mode preview' },
+      );
+    },
+    signOut: async () => {
+      console.log(`[Preview Supabase:${mode}] auth.signOut`);
+      return createResponse(null, null);
+    },
+    resetPasswordForEmail: async (email) => {
+      console.log(`[Preview Supabase:${mode}] auth.resetPasswordForEmail`, email);
+      return createResponse(null, null);
+    },
+    updateUser: async (payload) => {
+      console.log(`[Preview Supabase:${mode}] auth.updateUser`, payload ?? null);
+      return createResponse({ user: null }, null);
+    },
+    admin: {
+      createUser: async (payload) => {
+        console.log(`[Preview Supabase:${mode}] auth.admin.createUser`, payload?.email ?? 'unknown');
+        return createResponse({ user: null }, null);
+      },
+    },
+  },
+  storage: {
+    from(bucket) {
+      console.log(`[Preview Supabase:${mode}] storage.from`, bucket);
+      return {
+        upload: async (path) => {
+          console.log(`[Preview Supabase:${mode}] storage.upload`, bucket, path);
+          return createResponse({ path }, null);
+        },
+        getPublicUrl: (path) => {
+          console.log(`[Preview Supabase:${mode}] storage.getPublicUrl`, bucket, path);
+          return { data: { publicUrl: '' } };
+        },
+      };
+    },
+  },
+});
+
 export const getSupabase = () => {
   if (!supabaseInstance) {
-    // Get Supabase configuration from settings store
-    const { supabaseUrl, supabaseKey } = useSettingsStore.getState();
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Supabase URL or key is missing');
-      throw new Error('Supabase configuration is missing');
-    }
-    
-    supabaseInstance = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    });
+    const { supabaseUrl } = useSettingsStore.getState();
+    console.log('[Preview Supabase] Initializing client with URL:', supabaseUrl || 'missing');
+    supabaseInstance = createPreviewClient('client');
   }
+
   return supabaseInstance;
 };
 
-// Function to get or create the Supabase admin client
 export const getSupabaseAdmin = () => {
   if (!supabaseAdminInstance) {
-    const { supabaseUrl, supabaseKey } = useSettingsStore.getState();
-    
-    if (!supabaseUrl || !supabaseKey) {
-      console.error('Supabase URL or key is missing');
-      throw new Error('Supabase configuration is missing');
-    }
-    
-    supabaseAdminInstance = createClient(supabaseUrl, supabaseKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    });
+    const { supabaseUrl } = useSettingsStore.getState();
+    console.log('[Preview Supabase] Initializing admin client with URL:', supabaseUrl || 'missing');
+    supabaseAdminInstance = createPreviewClient('admin');
   }
+
   return supabaseAdminInstance;
 };
 
-// Function to reinitialize Supabase clients
 export const reinitializeSupabase = () => {
-  console.log('Reinitializing Supabase clients...');
-  
-  const { supabaseUrl, supabaseKey } = useSettingsStore.getState();
-  
-  if (!supabaseUrl || !supabaseKey) {
-    console.error('Cannot reinitialize: Supabase URL or key is missing');
-    return false;
-  }
-  
-  try {
-    supabaseInstance = null;
-    supabaseAdminInstance = null;
-    getSupabase();
-    getSupabaseAdmin();
-    console.log('Supabase clients reinitialized successfully');
-    return true;
-  } catch (error) {
-    console.error('Error reinitializing Supabase:', formatSupabaseError(error));
-    return false;
-  }
+  console.log('[Preview Supabase] Reinitializing clients');
+  supabaseInstance = null;
+  supabaseAdminInstance = null;
+  getSupabase();
+  getSupabaseAdmin();
+  return true;
 };
 
-// Function to test Supabase connection
 export const testSupabaseConnection = async () => {
-  try {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from('users').select('count', { count: 'exact', head: true });
-    
-    if (error) {
-      console.error('Supabase connection test failed:', formatSupabaseError(error));
-      return { success: false, error: formatSupabaseError(error) };
-    }
-    
-    return { success: true };
-  } catch (error) {
-    console.error('Supabase connection test error:', formatSupabaseError(error));
-    return { success: false, error: formatSupabaseError(error) };
-  }
+  console.log('[Preview Supabase] testSupabaseConnection');
+  return { success: true };
 };
 
-// Function to sync user with Supabase
 export const syncUserWithSupabase = async (authUser) => {
-  if (!authUser?.id) {
-    console.error('No auth user ID provided for sync');
-    return { 
-      success: false, 
-      error: 'No auth user ID provided',
-      details: null,
-      hint: 'Make sure user is authenticated'
-    };
-  }
-  
-  try {
-    console.log('Syncing user:', authUser.id);
-    const supabase = getSupabase();
-    
-    // First check if user exists in users table
-    const { data: existingUser, error: findError } = await supabase
-      .from('users')
-      .select('*')
-      .eq('supabaseUserId', authUser.id)
-      .single();
-    
-    if (findError && findError.code !== 'PGRST116') {
-      console.error('Error finding user:', formatSupabaseError(findError));
-      return { 
-        success: false, 
-        error: formatSupabaseError(findError),
-        details: findError.details,
-        hint: findError.hint
-      };
-    }
-    
-    // If user exists, update last login
-    if (existingUser) {
-      console.log('Updating existing user:', existingUser.id);
-      
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ 
-          lastLogin: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        })
-        .eq('id', existingUser.id);
-      
-      if (updateError) {
-        console.error('Error updating user:', formatSupabaseError(updateError));
-        return { 
-          success: false, 
-          error: formatSupabaseError(updateError),
-          details: updateError.details,
-          hint: updateError.hint
-        };
-      }
-      
-      return { success: true, user: existingUser };
-    }
-    
-    // If no user found, create new user
-    console.log('Creating new user for:', authUser.id);
-    
-    const newUser = {
-      supabaseUserId: authUser.id,
-      email: authUser.email,
-      firstName: authUser.user_metadata?.firstName || '',
-      lastName: authUser.user_metadata?.lastName || '',
-      role: authUser.user_metadata?.role || 'user',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      lastLogin: new Date().toISOString()
-    };
-    
-    const { data: createdUser, error: createError } = await supabase
-      .from('users')
-      .insert([newUser])
-      .select()
-      .single();
-    
-    if (createError) {
-      console.error('Error creating user:', formatSupabaseError(createError));
-      return { 
-        success: false, 
-        error: formatSupabaseError(createError),
-        details: createError.details,
-        hint: createError.hint
-      };
-    }
-    
-    return { success: true, user: createdUser };
-  } catch (error) {
-    console.error('Error in syncUserWithSupabase:', formatSupabaseError(error));
-    return { 
-      success: false, 
-      error: formatSupabaseError(error),
-      details: error.details || null,
-      hint: error.hint || 'Check server logs for more details'
-    };
-  }
+  console.log('[Preview Supabase] syncUserWithSupabase', authUser?.id ?? 'missing');
+  return {
+    success: true,
+    user: authUser ?? null,
+    error: null,
+    details: null,
+    hint: null,
+    fullError: null,
+  };
 };
 
-// Function to check and restore session
 export const checkAndRestoreSession = async () => {
-  try {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.auth.getSession();
-    
-    if (error) {
-      console.error('Error checking session:', formatSupabaseError(error));
-      return null;
-    }
-    
-    if (data.session) {
-      console.log('Session found and restored');
-      return data.session;
-    } else {
-      console.log('No active session found');
-      return null;
-    }
-  } catch (error) {
-    console.error('Error in checkAndRestoreSession:', formatSupabaseError(error));
-    return null;
-  }
+  console.log('[Preview Supabase] checkAndRestoreSession');
+  const stored = await AsyncStorage.getItem('mysteria-auth-storage');
+  console.log('[Preview Supabase] Stored auth snapshot present:', Boolean(stored));
+  return null;
 };
 
-// Function to test authentication
 export const testAuth = async () => {
-  try {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.auth.getUser();
-    
-    if (error) {
-      console.error('Auth test failed:', formatSupabaseError(error));
-      return false;
-    }
-    
-    if (data.user) {
-      console.log('Auth test successful, user found:', data.user.id);
-      return true;
-    }
-    
-    console.log('Auth test: No user logged in');
-    return false;
-  } catch (error) {
-    console.error('Error in testAuth:', formatSupabaseError(error));
-    return false;
-  }
+  console.log('[Preview Supabase] testAuth');
+  return false;
 };
 
-// Function to clear authentication data
 export const clearAuthData = async () => {
-  try {
-    const supabase = getSupabase();
-    const { error } = await supabase.auth.signOut();
-    
-    if (error) {
-      console.error('Error clearing auth data:', formatSupabaseError(error));
-      return false;
-    }
-    
-    console.log('Auth data cleared successfully');
-    return true;
-  } catch (error) {
-    console.error('Error in clearAuthData:', formatSupabaseError(error));
-    return false;
-  }
+  console.log('[Preview Supabase] clearAuthData');
+  await AsyncStorage.removeItem('mysteria-auth-storage');
+  return true;
 };
+
+export { formatSupabaseError };

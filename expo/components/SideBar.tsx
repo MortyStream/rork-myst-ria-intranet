@@ -45,7 +45,7 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
 
   const handleLogout = () => {
     logout();
-    router.replace('/login');
+    router.replace('/directory');
     if (onClose) onClose();
   };
 
@@ -140,8 +140,7 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
               // Perform hard reset
               await hardReset();
               
-              // Navigate to login screen
-              router.replace('/login');
+              router.replace('/directory');
               
               if (onClose) onClose();
               

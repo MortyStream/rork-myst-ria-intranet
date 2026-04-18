@@ -31,6 +31,42 @@ const DEFAULT_MODERATOR: User = {
   updatedAt: new Date().toISOString(),
 };
 
+const PREVIEW_USER: User = {
+  id: 'preview-user',
+  username: 'preview',
+  email: 'preview@mysteriaevent.local',
+  firstName: 'Mode',
+  lastName: 'Preview',
+  role: 'admin',
+  permissions: ['all'],
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+  editable: true,
+};
+
+const createPreviewUser = (): User => ({
+  ...PREVIEW_USER,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+});
+
+const enablePreviewMode = (
+  set: (partial: Partial<AuthStore>) => void,
+  reason: string,
+): boolean => {
+  const previewUser = createPreviewUser();
+
+  console.log(`Preview mode enabled: ${reason}`);
+  set({
+    user: previewUser,
+    isAuthenticated: true,
+    isLoading: false,
+    error: null,
+  });
+
+  return true;
+};
+
 interface AuthStore extends AuthState {
   user: User | null; // Explicitly adding user property to fix TypeScript error
   login: (username: string, password: string) => Promise<void>;
@@ -69,8 +105,8 @@ interface AuthStore extends AuthState {
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
-      user: null,
-      isAuthenticated: false,
+      user: createPreviewUser(),
+      isAuthenticated: true,
       isLoading: false,
       error: null,
       isFirstLogin: true,
@@ -109,8 +145,8 @@ export const useAuthStore = create<AuthStore>()(
         
         // Reset all state
         set({ 
-          user: null, 
-          isAuthenticated: false,
+          user: createPreviewUser(), 
+          isAuthenticated: true,
           error: null,
           initializationAttempts: 0,
           lastInitializationTime: null,
@@ -651,27 +687,17 @@ export const useAuthStore = create<AuthStore>()(
             }
           }
           
-          // No session found
-          set({ 
-            user: null, 
-            isAuthenticated: false,
-            error: null
-          });
-          
+          // No session found, enable preview mode instead of blocking the app
           get().setInitializationStatus('success');
-          return true;
+          return enablePreviewMode(set, 'No active Supabase session found');
         } catch (error) {
           console.error('Error during auth initialization:', error);
           console.error('Full error object:', JSON.stringify(error, null, 2));
           
-          set({ 
-            error: `Error during auth initialization: ${error.message || JSON.stringify(error)}`,
-            isAuthenticated: false,
-            user: null
-          });
-          
+          const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
+
           get().setInitializationStatus('error');
-          return false;
+          return enablePreviewMode(set, `Auth initialization failed: ${errorMessage}`);
         }
       },
       
@@ -975,10 +1001,10 @@ export const useAuthStore = create<AuthStore>()(
           console.error('Full error object:', JSON.stringify(error, null, 2));
         }
         
-        console.log('User logged out');
+        console.log('User logged out, returning to preview mode');
         set({ 
-          user: null, 
-          isAuthenticated: false,
+          user: createPreviewUser(), 
+          isAuthenticated: true,
           error: null
         });
       },

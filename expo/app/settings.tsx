@@ -72,7 +72,7 @@ export default function SettingsScreen() {
           style: 'destructive',
           onPress: () => {
             logout();
-            router.replace('/login');
+            router.replace('/directory');
           },
         },
       ]

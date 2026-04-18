@@ -3,7 +3,74 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '@/types/user';
-import { getSupabase } from '@/utils/supabase';
+import { getSupabase, reinitializeSupabase } from '@/utils/supabase';
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (typeof error === 'string') {
+    return error;
+  }
+
+  if (error && typeof error === 'object') {
+    const errorObject = error as {
+      message?: string;
+      details?: string;
+      hint?: string;
+      code?: string;
+    };
+
+    const parts = [errorObject.message, errorObject.details, errorObject.hint, errorObject.code].filter(
+      (value): value is string => Boolean(value)
+    );
+
+    if (parts.length > 0) {
+      return parts.join(' · ');
+    }
+  }
+
+  return 'Une erreur inconnue est survenue.';
+};
+
+const getFriendlyUsersErrorMessage = (error: unknown): string => {
+  const message = getErrorMessage(error);
+
+  if (message.toLowerCase().includes('failed to fetch')) {
+    return "Impossible de joindre le serveur utilisateurs pour le moment. Les données locales ont été conservées.";
+  }
+
+  return `Impossible de charger les utilisateurs. ${message}`;
+};
+
+const mapSupabaseUserToUser = (user: Record<string, unknown>): User => ({
+  id: String(user.id ?? ''),
+  supabaseUserId: typeof user.supabaseUserId === 'string' ? user.supabaseUserId : undefined,
+  firstName: typeof user.firstName === 'string' ? user.firstName : '',
+  lastName: typeof user.lastName === 'string' ? user.lastName : '',
+  email: typeof user.email === 'string' ? user.email : '',
+  phone: typeof user.phone === 'string' ? user.phone : '',
+  role: typeof user.role === 'string' ? (user.role as User['role']) : 'user',
+  avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : undefined,
+  bio: typeof user.bio === 'string' ? user.bio : undefined,
+  sectors: Array.isArray(user.sectors) ? (user.sectors as User['sectors']) : [],
+  editable: user.editable !== false,
+  editable_by: typeof user.editable_by === 'string' ? user.editable_by : undefined,
+  createdAt: typeof user.createdAt === 'string' ? user.createdAt : new Date().toISOString(),
+  updatedAt: typeof user.updatedAt === 'string' ? user.updatedAt : new Date().toISOString(),
+});
+
+const fetchUsersFromSupabase = async (): Promise<User[]> => {
+  const supabase = getSupabase();
+  const { data, error } = await supabase.from('users').select('*').order('lastName', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? data.map((user) => mapSupabaseUserToUser(user as Record<string, unknown>)) : [];
+};
 
 interface UsersState {
   users: User[];
@@ -30,47 +97,32 @@ export const useUsersStore = create<UsersState>()(
 
       initializeUsers: async () => {
         set({ isLoading: true, error: null });
-        
+
         try {
-          const supabase = getSupabase();
-          
-          // Fetch all users from the users table
-          const { data: users, error } = await supabase
-            .from('users')
-            .select('*')
-            .order('lastName', { ascending: true });
-          
-          if (error) {
-            console.error('Error fetching users:', error);
-            throw new Error(`Error fetching users: ${error.message}`);
+          console.log('Initializing users store...');
+          const transformedUsers = await fetchUsersFromSupabase();
+          console.log('Users fetched successfully:', transformedUsers.length);
+          set({ users: transformedUsers, isLoading: false, error: null });
+        } catch (initialError: unknown) {
+          console.error('Error fetching users on first attempt:', getErrorMessage(initialError));
+
+          try {
+            console.log('Reinitializing Supabase client before retrying users fetch...');
+            reinitializeSupabase();
+            const transformedUsers = await fetchUsersFromSupabase();
+            console.log('Users fetched successfully after retry:', transformedUsers.length);
+            set({ users: transformedUsers, isLoading: false, error: null });
+          } catch (retryError: unknown) {
+            const existingUsers = get().users;
+            const friendlyMessage = getFriendlyUsersErrorMessage(retryError);
+
+            console.error('Error initializing users after retry:', getErrorMessage(retryError));
+            set({
+              users: existingUsers,
+              error: friendlyMessage,
+              isLoading: false,
+            });
           }
-          
-          // Transform the data to match our User type
-          const transformedUsers: User[] = users.map((user: any) => ({
-            id: user.id,
-            supabaseUserId: user.supabaseUserId,
-            firstName: user.firstName || '',
-            lastName: user.lastName || '',
-            email: user.email || '',
-            phone: user.phone || '',
-            role: user.role || 'user',
-            avatarUrl: user.avatarUrl,
-            bio: user.bio,
-            sectors: user.sectors || [],
-            editable: user.editable !== false, // default to true if not set
-            editable_by: user.editable_by,
-            createdAt: user.createdAt,
-            updatedAt: user.updatedAt
-          }));
-          
-          set({ users: transformedUsers, isLoading: false });
-        } catch (error: unknown) {
-          console.error('Error initializing users:', error);
-          const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
-          set({ 
-            error: `Error initializing users: ${errorMessage}`,
-            isLoading: false 
-          });
         }
       },
 

@@ -309,7 +309,7 @@ export const useResourcesStore = create<ResourcesState>()(
       }
     }),
     {
-      name: 'resources-storage',
+      name: 'resources-storage-v2',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         subscriptions: state.subscriptions,

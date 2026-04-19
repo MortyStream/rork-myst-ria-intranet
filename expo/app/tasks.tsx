@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -23,7 +23,6 @@ import { TaskForm } from '@/components/TaskForm';
 import { Task } from '@/types/task';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
-import { UserRole } from '@/types/user';
 
 export default function TasksScreen() {
   const router = useRouter();
@@ -33,6 +32,7 @@ export default function TasksScreen() {
     getUserTasks,
     getOverdueTasks,
     getUpcomingDeadlines,
+    initializeTasks,
   } = useTasksStore();
   
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -41,12 +41,14 @@ export default function TasksScreen() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
+
+  useEffect(() => {
+    initializeTasks();
+  }, []);
   
-  // Get user tasks
   const userTasks = user ? getUserTasks(user.id) : [];
   const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
   
-  // Filter tasks by status
   const pendingTasks = userTasks.filter(task => 
     task.assignedTo.includes(user?.id || '') && 
     (task.status === 'pending' || task.status === 'in_progress')
@@ -57,16 +59,14 @@ export default function TasksScreen() {
     (task.status === 'completed' || task.status === 'validated')
   );
   
-  // Tasks to show based on filter
   const tasksToShow = filter === 'all' ? userTasks : 
                      filter === 'pending' ? pendingTasks : 
                      completedTasks;
   
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    await initializeTasks();
+    setRefreshing(false);
   }, []);
   
   const handleTaskPress = (task: Task) => {
@@ -81,17 +81,17 @@ export default function TasksScreen() {
     setShowTaskForm(false);
   };
   
-  const handleTaskFormSave = () => {
+  const handleTaskFormSave = async () => {
     setShowTaskForm(false);
-    onRefresh();
+    await initializeTasks();
   };
   
   const handleTaskDetailClose = () => {
     setSelectedTask(null);
   };
   
-  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
-  const canAddTask = isAdminOrModerator || user?.role === 'committee';
+  const canAddTask = user?.role === 'admin' || user?.role === 'responsable_pole' || user?.role === 'responsable_secteur';
+  const isAdmin = user?.role === 'admin' || user?.role === 'responsable_pole';
   
   return (
     <AppLayout
@@ -103,14 +103,14 @@ export default function TasksScreen() {
           title="Mes tâches ✓"
           onTitlePress={() => toggleSidebar?.()}
           rightComponent={
-            canAddTask && (
+            canAddTask ? (
               <Button
                 icon={<Plus size={24} color={theme.text} />}
                 onPress={handleAddTask}
                 variant="text"
                 style={styles.addButton}
               />
-            )
+            ) : null
           }
           containerStyle={styles.headerContainer}
         />
@@ -122,14 +122,12 @@ export default function TasksScreen() {
             variant={filter === 'all' ? 'primary' : 'text'}
             style={styles.filterButton}
           />
-          
           <Button
             title={`À faire (${pendingTasks.length})`}
             onPress={() => setFilter('pending')}
             variant={filter === 'pending' ? 'primary' : 'text'}
             style={styles.filterButton}
           />
-          
           <Button
             title={`Terminées (${completedTasks.length})`}
             onPress={() => setFilter('completed')}
@@ -146,12 +144,11 @@ export default function TasksScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {overdueTasks.length > 0 && filter !== 'completed' && (
+          {overdueTasks.length > 0 && filter !== 'completed' ? (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.error }]}>
                 En retard ({overdueTasks.length})
               </Text>
-              
               {overdueTasks.map(task => (
                 <TaskItem 
                   key={task.id} 
@@ -160,16 +157,15 @@ export default function TasksScreen() {
                 />
               ))}
             </View>
-          )}
+          ) : null}
           
           {tasksToShow.length > 0 ? (
             <View style={styles.section}>
-              {filter === 'all' && (
+              {filter === 'all' ? (
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
                   Toutes les tâches
                 </Text>
-              )}
-              
+              ) : null}
               {tasksToShow.map(task => (
                 <TaskItem 
                   key={task.id} 
@@ -182,14 +178,16 @@ export default function TasksScreen() {
             <EmptyState
               icon="check-square"
               title="Aucune tâche"
-              message={filter === 'all' ? "Vous n'avez pas de tâches assignées." : 
-                      filter === 'pending' ? "Vous n'avez pas de tâches en attente." : 
-                      "Vous n'avez pas de tâches terminées."}
+              message={
+                filter === 'all' ? "Vous n'avez pas de tâches assignées." : 
+                filter === 'pending' ? "Vous n'avez pas de tâches en attente." : 
+                "Vous n'avez pas de tâches terminées."
+              }
               style={styles.emptyState}
             />
           )}
           
-          {isAdminOrModerator && (
+          {isAdmin ? (
             <Card style={styles.adminCard}>
               <Text style={[styles.adminCardTitle, { color: theme.text }]}>
                 Gestion des tâches
@@ -203,64 +201,50 @@ export default function TasksScreen() {
                 style={styles.adminButton}
               />
             </Card>
-          )}
+          ) : null}
         </ScrollView>
         
-        {/* Task Detail Modal */}
-        {selectedTask && (
+        {selectedTask ? (
           <TaskDetail 
             task={selectedTask} 
             onClose={handleTaskDetailClose} 
             onUpdate={onRefresh}
           />
-        )}
+        ) : null}
         
-        {/* Task Form Modal */}
-        {showTaskForm && (
+        {showTaskForm ? (
           <TaskForm 
             onClose={handleTaskFormClose} 
             onSave={handleTaskFormSave}
           />
-        )}
+        ) : null}
       </SafeAreaView>
     </AppLayout>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  headerContainer: {
-    marginTop: -8, // Match the home page header margin
-  },
+  container: { flex: 1 },
+  headerContainer: { marginTop: -8 },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
     marginBottom: 16,
-    marginTop: -4, // Reduce space between header and filters
+    marginTop: -4,
   },
-  filterButton: {
-    marginRight: 8,
-  },
-  scrollView: {
-    flex: 1,
-  },
+  filterButton: { marginRight: 8 },
+  scrollView: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 20,
     paddingBottom: 40,
   },
-  section: {
-    marginBottom: 24,
-  },
+  section: { marginBottom: 24 },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     marginBottom: 16,
   },
-  emptyState: {
-    marginTop: 40,
-  },
+  emptyState: { marginTop: 40 },
   adminCard: {
     marginTop: 24,
     marginBottom: 24,
@@ -274,10 +258,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 16,
   },
-  adminButton: {
-    alignSelf: 'flex-start',
-  },
-  addButton: {
-    marginLeft: 8,
-  },
+  adminButton: { alignSelf: 'flex-start' },
+  addButton: { marginLeft: 8 },
 });

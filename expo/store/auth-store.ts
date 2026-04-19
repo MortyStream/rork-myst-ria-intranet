@@ -165,7 +165,7 @@ export const useAuthStore = create<AuthStore>()(
         try {
           const currentUser = get().user;
           if (!currentUser || !currentUser.supabaseUserId) {
-            console.error('No current user or supabaseUserId to refresh');
+            console.log('No current user or supabaseUserId to refresh');
             return false;
           }
           

@@ -36,25 +36,15 @@ export default function UserProfileScreen() {
     );
   }
   
-  if (!user.editable && currentUser?.role !== 'admin' && currentUser?.id !== user.editable_by) {
-    Alert.alert(
-      "Profil non modifiable",
-      "Ce profil n'est pas modifiable dans l'annuaire.",
-      [{text:"OK",onPress:()=>router.back()}]
-    );
-    return null;
-  }
-  
   const handlePhonePress = async () => {
     if (!user.phone) return;
-    
     if (Platform.OS === 'android') {
       Alert.alert(
         'Contact',
         'Que souhaitez-vous faire ?',
         [
           {text:'Appeler',onPress:()=>Linking.openURL(`tel:${user.phone}`)},
-          {text:'WhatsApp',onPress:()=>Linking.openURL(`https://wa.me/${user.phone.replace(/[^0-9]/g,'')}`)},
+          {text:'WhatsApp',onPress:()=>Linking.openURL(`https://wa.me/${user.phone!.replace(/[^0-9]/g,'')}`)},
           {text:'Annuler',style:'cancel'}
         ]
       );
@@ -75,30 +65,42 @@ export default function UserProfileScreen() {
   const getRoleLabel = (role: string): string => {
     switch (role) {
       case 'admin': return 'Administrateur';
-      case 'committee': return 'Membre du comité';
-      case 'actor': return 'Comédien';
-      case 'partner': return 'Partenaire';
+      case 'responsable_pole': return 'Responsable de pôle';
+      case 'responsable_secteur': return 'Responsable de secteur';
+      case 'membre': return 'Membre';
       default: return "Membre de l'association";
+    }
+  };
+
+  const getAssociationRoleLabel = (associationRole?: string): string => {
+    switch (associationRole) {
+      case 'president': return 'Président';
+      case 'vice_president': return 'Vice-Président(e)';
+      case 'tresorier': return 'Trésorier';
+      case 'secretaire': return 'Secrétaire';
+      case 'comite': return 'Comité';
+      case 'membre': return 'Membre';
+      case 'sympathisant': return 'Sympathisant';
+      default: return '';
     }
   };
   
   const getRoleBadgeVariant = (role: string): 'primary'|'secondary'|'info'|'success'|'warning' => {
     switch (role) {
       case 'admin': return 'primary';
-      case 'committee': return 'secondary';
-      case 'actor': return 'info';
-      case 'partner': return 'warning';
+      case 'responsable_pole': return 'secondary';
+      case 'responsable_secteur': return 'info';
       default: return 'info';
     }
   };
   
   const getSectorRoleIcon = (isResponsible: boolean, roleId?: string): React.ReactNode => {
     if (isResponsible) {
-      return<Crown size={20} color={theme.primary} style={styles.sectorIcon}/>;
+      return <Crown size={20} color={theme.primary} style={styles.sectorIcon}/>;
     } else if (roleId === 'support') {
-      return<Star size={20} color={theme.secondary} style={styles.sectorIcon}/>;
+      return <Star size={20} color={theme.secondary} style={styles.sectorIcon}/>;
     } else {
-      return<Users size={20} color={theme.text} style={styles.sectorIcon}/>;
+      return <Users size={20} color={theme.text} style={styles.sectorIcon}/>;
     }
   };
   
@@ -111,12 +113,13 @@ export default function UserProfileScreen() {
   const canEditProfile = () => {
     if (!currentUser) return false;
     if (currentUser.role === 'admin') return true;
-    if (currentUser.role === 'committee') return true;
-    if (currentUser.id === user.editable_by) return true;
+    if (currentUser.role === 'responsable_pole') return true;
     if (currentUser.id === user.supabaseUserId) return true;
     if (user.editable) return true;
     return false;
   };
+
+  const assocLabel = getAssociationRoleLabel((user as any).associationRole);
   
   return(
     <AppLayout hideMenuButton={true}>
@@ -149,39 +152,31 @@ export default function UserProfileScreen() {
               size="medium"
               style={styles.roleBadge}
             />
-            {user.editable_by && currentUser && user.editable_by === currentUser.id &&(
+            {assocLabel ? (
               <Badge
-                label="Vous pouvez éditer ce profil"
+                label={assocLabel}
                 variant="success"
                 size="small"
                 style={styles.editableBadge}
               />
-            )}
-            {!user.editable &&(
-              <Badge
-                label="Profil non modifiable"
-                variant="error"
-                size="small"
-                style={styles.nonEditableBadge}
-              />
-            )}
+            ) : null}
           </View>
           <Card style={styles.contactCard}>
             <Text style={[styles.sectionTitle,{color:theme.text}]}>Contact</Text>
-            {user.phone &&(
+            {user.phone ?(
               <TouchableOpacity style={styles.contactItem} onPress={handlePhonePress}>
                 <Phone size={20} color={theme.primary} style={styles.contactIcon}/>
                 <Text style={[styles.contactText,{color:theme.text}]}>{user.phone}</Text>
               </TouchableOpacity>
-            )}
-            {user.email &&(
+            ) : null}
+            {user.email ?(
               <TouchableOpacity style={styles.contactItem} onPress={handleEmailPress}>
                 <Mail size={20} color={theme.primary} style={styles.contactIcon}/>
                 <Text style={[styles.contactText,{color:theme.text}]}>{user.email}</Text>
               </TouchableOpacity>
-            )}
+            ) : null}
           </Card>
-          {user.sectors && user.sectors.length > 0 &&(
+          {user.sectors && user.sectors.length > 0 ?(
             <Card style={styles.sectorsCard}>
               <Text style={[styles.sectionTitle,{color:theme.text}]}>Secteurs</Text>
               {user.sectors.map((sector,index)=>{
@@ -198,13 +193,13 @@ export default function UserProfileScreen() {
                 );
               })}
             </Card>
-          )}
-          {user.bio &&(
+          ) : null}
+          {user.bio ?(
             <Card style={styles.bioCard}>
               <Text style={[styles.sectionTitle,{color:theme.text}]}>Biographie</Text>
               <Text style={[styles.bioText,{color:theme.text}]}>{user.bio}</Text>
             </Card>
-          )}
+          ) : null}
         </ScrollView>
       </SafeAreaView>
     </AppLayout>

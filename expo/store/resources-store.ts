@@ -147,12 +147,21 @@ export const useResourcesStore = create<ResourcesState>()(
       isLoading: false,
       error: null,
 
-      initializeDefaultCategories: () => {
-        set(state => ({
-          ...state,
-          categories: DEFAULT_CATEGORIES
-        }));
-      },
+    initializeDefaultCategories: async () => {
+  set({ isLoading: true, error: null });
+  try {
+    const categories = await fetchCategoriesFromSupabase();
+    const resourceItems = await fetchResourceItemsFromSupabase();
+    if (categories.length > 0) {
+      set({ categories, resourceItems, isLoading: false });
+    } else {
+      set({ isLoading: false });
+    }
+  } catch (error) {
+    console.log('Erreur chargement ressources:', error);
+    set({ isLoading: false });
+  }
+},
 
       getVisibleCategories: () => {
         return get().categories;

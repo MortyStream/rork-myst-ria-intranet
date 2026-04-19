@@ -1,5 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js/dist/module/index.js';
 
 const SUPABASE_URL = 'https://toefttzpdexugvfdqhfg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvZWZ0dHpwZGV4dWd2ZmRxaGZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MDAwMTcsImV4cCI6MjA5MjE3NjAxN30.h2A3qTRXPkOR8qfQsY6c1pXOzAFAbvKv-6baR4Qm0wg';
@@ -7,44 +7,25 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 let supabaseInstance = null;
 let supabaseAdminInstance = null;
 
+const clientOptions = {
+  auth: {
+    storage: AsyncStorage,
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: false,
+  },
+};
+
 export const getSupabase = () => {
   if (!supabaseInstance) {
-    supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-      realtime: {
-        transport: 'websocket',
-        params: { eventsPerSecond: 0 },
-      },
-      global: {
-        fetch: fetch.bind(globalThis),
-      },
-    });
+    supabaseInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
   }
   return supabaseInstance;
 };
 
 export const getSupabaseAdmin = () => {
   if (!supabaseAdminInstance) {
-    supabaseAdminInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-      realtime: {
-        transport: 'websocket',
-        params: { eventsPerSecond: 0 },
-      },
-      global: {
-        fetch: fetch.bind(globalThis),
-      },
-    });
+    supabaseAdminInstance = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, clientOptions);
   }
   return supabaseAdminInstance;
 };

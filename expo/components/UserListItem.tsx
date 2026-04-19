@@ -6,7 +6,7 @@ import { Badge } from './Badge';
 import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
 import { useAuthStore } from '@/store/auth-store';
-import { ChevronRight, Mail, Phone, Edit } from 'lucide-react-native';
+import { ChevronRight, Mail, Phone } from 'lucide-react-native';
 
 interface UserListItemProps {
   user: User;
@@ -24,67 +24,53 @@ export const UserListItem: React.FC<UserListItemProps> = ({
   const { darkMode } = useSettingsStore();
   const { user: currentUser } = useAuthStore();
   const theme = darkMode ? Colors.dark : Colors.light;
-  
-  // Check if this profile is editable by the current user
-  const isEditable = currentUser && (
-    user.editable_by === currentUser.id || 
-    user.supabaseUserId === currentUser.id
-  );
-  
+
   const getRoleBadgeVariant = (role: string): 'primary' | 'secondary' | 'info' | 'success' | 'warning' => {
     switch (role) {
-      case 'admin':
-        return 'primary';
-      case 'committee':
-        return 'secondary';
-      case 'actor':
-        return 'info';
-      case 'partner':
-        return 'warning';
-      default:
-        return 'info';
+      case 'admin': return 'primary';
+      case 'responsable_pole': return 'secondary';
+      case 'responsable_secteur': return 'info';
+      case 'membre': return 'info';
+      default: return 'info';
     }
   };
-  
+
   const getRoleLabel = (role: string): string => {
     switch (role) {
-      case 'admin':
-        return 'Administrateur';
-      case 'committee':
-        return 'Membre du comité';
-      case 'actor':
-        return 'Comédien';
-      case 'partner':
-        return 'Partenaire';
-      default:
-        return 'Membre';
+      case 'admin': return 'Administrateur';
+      case 'responsable_pole': return 'Resp. de pôle';
+      case 'responsable_secteur': return 'Resp. de secteur';
+      case 'membre': return 'Membre';
+      default: return 'Membre';
     }
   };
-  
+
+  const getAssociationRoleLabel = (assocRole?: string): string => {
+    switch (assocRole) {
+      case 'president': return 'Président';
+      case 'vice_president': return 'Vice-Président(e)';
+      case 'tresorier': return 'Trésorier';
+      case 'secretaire': return 'Secrétaire';
+      case 'comite': return 'Comité';
+      default: return '';
+    }
+  };
+
+  const assocLabel = getAssociationRoleLabel((user as any).associationRole);
+
   return (
     <TouchableOpacity
-      style={[
-        styles.container,
-        { backgroundColor: theme.card },
-        !user.editable && styles.nonEditableContainer
-      ]}
+      style={[styles.container, { backgroundColor: theme.card }]}
       onPress={onPress}
       activeOpacity={0.7}
       disabled={!onPress}
     >
       <View style={styles.header}>
-        <View style={styles.avatarContainer}>
-          <Avatar
-            source={user.avatarUrl ? { uri: user.avatarUrl } : undefined}
-            name={`${user.firstName} ${user.lastName}`}
-            size={56}
-          />
-          {isEditable && (
-            <View style={[styles.linkedBadge, { backgroundColor: theme.primary }]}>
-              <Edit size={10} color="#FFFFFF" />
-            </View>
-          )}
-        </View>
+        <Avatar
+          source={user.avatarUrl ? { uri: user.avatarUrl } : undefined}
+          name={`${user.firstName} ${user.lastName}`}
+          size={56}
+        />
         <View style={styles.userInfo}>
           <Text style={[styles.name, { color: theme.text }]}>
             {user.firstName} {user.lastName}
@@ -96,76 +82,36 @@ export const UserListItem: React.FC<UserListItemProps> = ({
               size="small"
               style={styles.roleBadge}
             />
-            {!user.editable && (
+            {assocLabel ? (
               <Badge
-                label="Non modifiable"
-                variant="error"
-                size="small"
-                style={styles.nonEditableBadge}
-              />
-            )}
-            {isEditable && (
-              <Badge
-                label="Éditable"
+                label={assocLabel}
                 variant="success"
                 size="small"
-                style={styles.editableBadge}
+                style={styles.roleBadge}
               />
-            )}
+            ) : null}
           </View>
         </View>
-        {showChevron && (
+        {showChevron ? (
           <ChevronRight size={20} color={darkMode ? theme.inactive : '#999999'} />
-        )}
+        ) : null}
       </View>
-      {showContactInfo && (
+      {showContactInfo ? (
         <View style={styles.contactInfo}>
-          {user.email && (
+          {user.email ? (
             <View style={styles.contactItem}>
               <Mail size={16} color={theme.inactive} style={styles.contactIcon} />
-              <Text style={[styles.contactText, { color: theme.text }]}>
-                {user.email}
-              </Text>
+              <Text style={[styles.contactText, { color: theme.text }]}>{user.email}</Text>
             </View>
-          )}
-          {user.phone && (
+          ) : null}
+          {user.phone ? (
             <View style={styles.contactItem}>
               <Phone size={16} color={theme.inactive} style={styles.contactIcon} />
-              <Text style={[styles.contactText, { color: theme.text }]}>
-                {user.phone}
-              </Text>
+              <Text style={[styles.contactText, { color: theme.text }]}>{user.phone}</Text>
             </View>
-          )}
+          ) : null}
         </View>
-      )}
-      {user.sectors && user.sectors.length > 0 && (
-        <View style={styles.sectorsContainer}>
-          {user.sectors.map((sector, index) => (
-            <View 
-              key={index} 
-              style={[
-                styles.sectorBadge, 
-                { backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' },
-                sector.isResponsible ? { 
-                  backgroundColor: darkMode ? 'rgba(194, 46, 15, 0.2)' : 'rgba(194, 46, 15, 0.1)' 
-                } : {}
-              ]}
-            >
-              <Text 
-                style={[
-                  styles.sectorText, 
-                  { color: theme.text },
-                  sector.isResponsible ? { color: theme.primary, fontWeight: '500' } : {}
-                ]}
-                numberOfLines={1}
-              >
-                {sector.name}
-                {sector.isResponsible ? ' (Resp.)' : ''}
-              </Text>
-            </View>
-          ))}
-        </View>
-      )}
+      ) : null}
     </TouchableOpacity>
   );
 };
@@ -175,29 +121,10 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 8,
     marginBottom: 12,
-    position: 'relative',
-  },
-  nonEditableContainer: {
-    opacity: 0.8,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-  },
-  avatarContainer: {
-    position: 'relative',
-  },
-  linkedBadge: {
-    position: 'absolute',
-    bottom: 0,
-    right: 0,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1.5,
-    borderColor: '#FFFFFF',
   },
   userInfo: {
     flex: 1,
@@ -216,13 +143,6 @@ const styles = StyleSheet.create({
     marginRight: 4,
     marginBottom: 4,
   },
-  nonEditableBadge: {
-    marginRight: 4,
-    marginBottom: 4,
-  },
-  editableBadge: {
-    marginBottom: 4,
-  },
   contactInfo: {
     marginTop: 12,
     marginLeft: 72,
@@ -237,21 +157,5 @@ const styles = StyleSheet.create({
   },
   contactText: {
     fontSize: 14,
-  },
-  sectorsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 12,
-    marginLeft: 72,
-  },
-  sectorBadge: {
-    borderRadius: 12,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 8,
-    marginBottom: 8,
-  },
-  sectorText: {
-    fontSize: 12,
   },
 });

@@ -1,4 +1,5 @@
 import { User } from './user';
+import React, { useState, useRef, useEffect } from 'react';
 
 export type TaskPriority = 'high' | 'medium' | 'low';
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'validated';

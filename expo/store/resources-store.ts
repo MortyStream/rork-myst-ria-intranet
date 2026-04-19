@@ -28,7 +28,7 @@ const fetchResourceItemsFromSupabase = async (): Promise<ResourceItem[]> => {
 interface ResourcesState {
   categories: ResourceCategory[];
   resourceItems: ResourceItem[];
-  subscriptions: Record<string, string[]>; // userId -> categoryIds[]
+  subscriptions: Record<string, string[]>;
   isLoading: boolean;
   error: string | null;
   getVisibleCategories: () => ResourceCategory[];
@@ -53,115 +53,30 @@ interface ResourcesState {
   initializeDefaultCategories: () => void;
 }
 
-// Default categories with exact Supabase IDs
-const DEFAULT_CATEGORIES: ResourceCategory[] = [
-  { 
-    id: 'd4edecc8-a4ba-4116-bd0c-16dd3d633cab',
-    name: 'Administration', 
-    description: 'Documents administratifs et procès-verbaux', 
-    icon: '📋', 
-    order: 1,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: '49f3741e-ecf6-4854-bbb5-751f8e8b742d',
-    name: 'Ressource Humaine', 
-    description: 'Gestion du personnel, recrutement et formation', 
-    icon: '👥', 
-    order: 2,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
-    name: 'Immersion & Interaction', 
-    description: 'Expériences immersives et interactions avec le public', 
-    icon: '🌀', 
-    order: 3,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'a8b7c6d5-e4f3-2g1h-i0j9-k8l7m6n5o4p3',
-    name: 'Marketing, Sponsorings & Partenaire', 
-    description: 'Stratégies marketing, sponsors et partenariats', 
-    icon: '🤝', 
-    order: 4,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'b2c3d4e5-f6g7-h8i9-j0k1-l2m3n4o5p6q7',
-    name: 'Réalisation & Production', 
-    description: 'Mise en scène, production et réalisation', 
-    icon: '🎬', 
-    order: 5,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'c3d4e5f6-g7h8-i9j0-k1l2-m3n4o5p6q7r8',
-    name: 'Conception décoration', 
-    description: 'Design et décoration des espaces', 
-    icon: '🎨', 
-    order: 6,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'd4e5f6g7-h8i9-j0k1-l2m3-n4o5p6q7r8s9',
-    name: 'Conception Artistique', 
-    description: 'Direction artistique et conception créative', 
-    icon: '🖌️', 
-    order: 7,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'e5f6g7h8-i9j0-k1l2-m3n4-o5p6q7r8s9t0',
-    name: 'Casting & Direction des comédiens', 
-    description: 'Sélection et direction des acteurs et comédiens', 
-    icon: '🎭', 
-    order: 8,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  },
-  { 
-    id: 'f6g7h8i9-j0k1-l2m3-n4o5-p6q7r8s9t0u1',
-    name: 'Logistique & Technique', 
-    description: 'Gestion logistique et support technique', 
-    icon: '🔧', 
-    order: 9,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }
-];
-
 export const useResourcesStore = create<ResourcesState>()(
   persist(
     (set, get) => ({
-      categories: DEFAULT_CATEGORIES,
+      categories: [],
       resourceItems: [],
       subscriptions: {},
       isLoading: false,
       error: null,
 
-    initializeDefaultCategories: async () => {
-  set({ isLoading: true, error: null });
-  try {
-    const categories = await fetchCategoriesFromSupabase();
-    const resourceItems = await fetchResourceItemsFromSupabase();
-    if (categories.length > 0) {
-      set({ categories, resourceItems, isLoading: false });
-    } else {
-      set({ isLoading: false });
-    }
-  } catch (error) {
-    console.log('Erreur chargement ressources:', error);
-    set({ isLoading: false });
-  }
-},
+      initializeDefaultCategories: async () => {
+        set({ isLoading: true, error: null });
+        try {
+          const categories = await fetchCategoriesFromSupabase();
+          const resourceItems = await fetchResourceItemsFromSupabase();
+          if (categories.length > 0) {
+            set({ categories, resourceItems, isLoading: false });
+          } else {
+            set({ isLoading: false });
+          }
+        } catch (error) {
+          console.log('Erreur chargement ressources:', error);
+          set({ isLoading: false });
+        }
+      },
 
       getVisibleCategories: () => {
         return get().categories;
@@ -258,7 +173,6 @@ export const useResourcesStore = create<ResourcesState>()(
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-
           set(state => ({
             categories: [...state.categories, newCategory]
           }));
@@ -285,7 +199,6 @@ export const useResourcesStore = create<ResourcesState>()(
         try {
           set(state => ({
             categories: state.categories.filter(category => category.id !== id),
-            // Also delete all resource items in this category
             resourceItems: state.resourceItems.filter(item => item.categoryId !== id)
           }));
         } catch (error) {
@@ -302,11 +215,9 @@ export const useResourcesStore = create<ResourcesState>()(
             createdAt: new Date().toISOString(),
             updatedAt: new Date().toISOString(),
           };
-
           set(state => ({
             resourceItems: [...state.resourceItems, newItem]
           }));
-          
           return newItemId;
         } catch (error) {
           console.error('Error adding resource item:', error);
@@ -330,33 +241,21 @@ export const useResourcesStore = create<ResourcesState>()(
 
       deleteResourceItem: (id) => {
         try {
-          // First, get the item to check if it's a folder
           const itemToDelete = get().resourceItems.find(item => item.id === id);
-          
           if (itemToDelete && itemToDelete.type === 'folder') {
-            // If it's a folder, also delete all items inside it (recursive)
             const deleteItemsRecursively = (parentId: string) => {
-              // Get all direct children
               const children = get().resourceItems.filter(item => item.parentId === parentId);
-              
-              // For each child folder, delete its contents recursively
               children.forEach(child => {
                 if (child.type === 'folder') {
                   deleteItemsRecursively(child.id);
                 }
               });
-              
-              // Delete all children
               set(state => ({
                 resourceItems: state.resourceItems.filter(item => item.parentId !== parentId)
               }));
             };
-            
-            // Start recursive deletion
             deleteItemsRecursively(id);
           }
-          
-          // Delete the item itself
           set(state => ({
             resourceItems: state.resourceItems.filter(item => item.id !== id)
           }));
@@ -385,7 +284,6 @@ export const useResourcesStore = create<ResourcesState>()(
 
       updateCategoryMember: async (id, updates) => {
         try {
-          // Implementation will be added when we add Supabase
         } catch (error) {
           console.error('Error updating category member:', error);
           throw error;
@@ -394,7 +292,6 @@ export const useResourcesStore = create<ResourcesState>()(
 
       deleteCategoryMember: async (id) => {
         try {
-          // Implementation will be added when we add Supabase
         } catch (error) {
           console.error('Error deleting category member:', error);
           throw error;
@@ -414,6 +311,9 @@ export const useResourcesStore = create<ResourcesState>()(
     {
       name: 'resources-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      partialize: (state) => ({
+        subscriptions: state.subscriptions,
+      }),
     }
   )
 );

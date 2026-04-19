@@ -13,7 +13,7 @@
     "@react-native-community/datetimepicker": "8.3.0",
     "@react-native-picker/picker": "2.11.0",
     "@react-navigation/native": "7.1.6",
-    "@supabase/supabase-js": "^2.49.1",
+    "@supabase/supabase-js": "2.39.0",
     "date-fns": "^4.1.0",
     "expo": "^53.0.8",
     "expo-asset": "~11.1.5",

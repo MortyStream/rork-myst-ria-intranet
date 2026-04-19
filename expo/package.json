@@ -13,7 +13,9 @@
     "@react-native-community/datetimepicker": "8.3.0",
     "@react-native-picker/picker": "2.11.0",
     "@react-navigation/native": "7.1.6",
-    "@supabase/supabase-js": "2.39.0",
+    "@rork-ai/toolkit-sdk": "latest",
+    "@supabase/auth-js": "2.65.0",
+    "@supabase/postgrest-js": "1.15.8",
     "date-fns": "^4.1.0",
     "expo": "^53.0.8",
     "expo-asset": "~11.1.5",
@@ -43,8 +45,7 @@
     "react-native-toast-message": "^2.2.1",
     "react-native-url-polyfill": "^2.0.0",
     "react-native-web": "~0.20.0",
-    "zustand": "^5.0.2",
-    "@rork-ai/toolkit-sdk": "latest"
+    "zustand": "^5.0.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -16,6 +16,13 @@ export const getSupabase = () => {
         persistSession: true,
         detectSessionInUrl: false,
       },
+      realtime: {
+        transport: 'websocket',
+        params: { eventsPerSecond: 0 },
+      },
+      global: {
+        fetch: fetch.bind(globalThis),
+      },
     });
   }
   return supabaseInstance;
@@ -29,6 +36,13 @@ export const getSupabaseAdmin = () => {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+      },
+      realtime: {
+        transport: 'websocket',
+        params: { eventsPerSecond: 0 },
+      },
+      global: {
+        fetch: fetch.bind(globalThis),
       },
     });
   }
@@ -57,7 +71,6 @@ export const syncUserWithSupabase = async (authUser) => {
   try {
     const supabase = getSupabase();
     const now = new Date().toISOString();
-
     const { data, error } = await supabase
       .from('users')
       .upsert({
@@ -67,7 +80,6 @@ export const syncUserWithSupabase = async (authUser) => {
       }, { onConflict: 'supabaseUserId' })
       .select()
       .single();
-
     if (error) return { success: false, error: error.message, details: error.details, hint: error.hint, fullError: error };
     return { success: true, user: data, error: null, details: null, hint: null, fullError: null };
   } catch (e) {

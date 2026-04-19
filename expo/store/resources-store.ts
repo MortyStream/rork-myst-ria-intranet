@@ -1,8 +1,29 @@
+import { getSupabase } from '@/utils/supabase';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ResourceCategory, ResourceItem } from '@/types/resource';
 import { v4 as uuidv4 } from 'uuid';
+
+const fetchCategoriesFromSupabase = async (): Promise<ResourceCategory[]> => {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('resource_categories')
+    .select('*')
+    .order('order', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+};
+
+const fetchResourceItemsFromSupabase = async (): Promise<ResourceItem[]> => {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from('resource_items')
+    .select('*')
+    .order('createdAt', { ascending: true });
+  if (error) throw error;
+  return data ?? [];
+};
 
 interface ResourcesState {
   categories: ResourceCategory[];

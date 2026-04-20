@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Stack } from 'expo-router';
+import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -37,14 +38,16 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.container}>
       <StatusBar style={darkMode ? 'light' : 'dark'} />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: {
-            backgroundColor: darkMode ? Colors.dark.background : Colors.light.background,
-          },
-        }}
-      />
+      <NavigationContainer>
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: {
+              backgroundColor: darkMode ? Colors.dark.background : Colors.light.background,
+            },
+          }}
+        />
+      </NavigationContainer>
       <Toast />
     </GestureHandlerRootView>
   );

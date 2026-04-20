@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -40,7 +40,6 @@ export default function TasksScreen() {
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
-  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   useEffect(() => {
     initializeTasks();
@@ -94,14 +93,10 @@ export default function TasksScreen() {
   const isAdmin = user?.role === 'admin' || user?.role === 'responsable_pole';
   
   return (
-    <AppLayout
-      hideMenuButton={true}
-      onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
-    >
+    <AppLayout>
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
           title="Mes tâches ✓"
-          onTitlePress={() => toggleSidebar?.()}
           rightComponent={
             canAddTask ? (
               <Button

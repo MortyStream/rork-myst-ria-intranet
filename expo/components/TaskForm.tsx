@@ -67,25 +67,14 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filter categories that the current user is responsible for
-  const userCategories = categories.filter(category => 
-    user && (
-      user.role === 'admin' || 
-      user.role === 'moderator' || 
-      isUserCategoryResponsible(user.id, category.id)
-    )
-  );
+ const userCategories = categories.filter(category => 
+  category.name.startsWith('Tâches') || 
+  user?.role === 'admin' || 
+  user?.role === 'responsable_pole'
+);
 
   // Filter users that can be assigned to tasks
-  const eligibleUsers = users.filter(u => 
-    u.id !== user?.id && (
-      u.role === 'admin' || 
-      u.role === 'moderator' || 
-      u.role === 'committee' ||
-      u.role === 'actor' ||
-      u.role === 'technician' ||
-      u.role === 'runner'
-    )
-  );
+ const eligibleUsers = users.filter(u => u.id !== user?.id);
 
   const handleDateChange = (event: any, selectedDate?: Date) => {
     setShowDatePicker(false);

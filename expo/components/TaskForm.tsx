@@ -48,7 +48,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   const { darkMode } = useSettingsStore();
   const { user } = useAuthStore();
   const { users } = useUsersStore();
-  const { categories, isUserCategoryResponsible } = useResourcesStore();
+  const { categories, isUserCategoryResponsible, initializeDefaultCategories } = useResourcesStore();
+  useEffect(() => {
+  initializeDefaultCategories();
+}, []);
   const { addTask, updateTask } = useTasksStore();
   const theme = darkMode ? Colors.dark : Colors.light;
 

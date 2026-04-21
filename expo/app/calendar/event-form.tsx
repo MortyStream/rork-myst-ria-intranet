@@ -59,7 +59,11 @@ export default function EventFormScreen() {
   const { addEvent, getEventById, updateEvent } = useCalendarStore();
   const { user } = useAuthStore();
   const { users } = useUsersStore();
-  const { categories } = useResourcesStore();
+  const { categories, initializeDefaultCategories } = useResourcesStore();
+
+  useEffect(() => {
+    initializeDefaultCategories();
+  }, []);
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
 

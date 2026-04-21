@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Event, EventParticipant } from '@/types/calendar';
 import { getSupabase } from '@/utils/supabase';
+import { useAuthStore } from './auth-store';
 
 const fetchEventsFromSupabase = async (): Promise<Event[]> => {
   const supabase = getSupabase();
@@ -57,7 +58,6 @@ export const useCalendarStore = create<CalendarStore>()(
 
       addEvent: async (eventData, invitedUserIds = []) => {
         const supabase = getSupabase();
-        const { useAuthStore } = await import('./auth-store');
         const currentUser = useAuthStore.getState().user;
         if (!currentUser) throw new Error('Non authentifié');
 

@@ -35,7 +35,7 @@ export default function CalendarScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { darkMode } = useSettingsStore();
-  const { getEventsByDate, getUpcomingEvents, getVisibleEvents, initializeEvents } = useCalendarStore();
+  const { getEventsByDate, getUpcomingEvents, initializeEvents } = useCalendarStore();
   const { getUserById } = useUsersStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
@@ -54,9 +54,7 @@ export default function CalendarScreen() {
       const dateEvents = getEventsByDate(selectedDate);
       setEvents(dateEvents);
 
-      const upcoming = getUpcomingEvents(5).filter(event => {
-        return getVisibleEvents(user.id).some(e => e.id === event.id);
-      });
+      const upcoming = getUpcomingEvents(5);
       setUpcomingEvents(upcoming);
     }
   }, [selectedDate, user]);

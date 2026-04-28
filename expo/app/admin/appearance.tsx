@@ -86,10 +86,10 @@ export default function AppearanceScreen() {
   // Check if user is admin
   const isAdmin = user?.role === 'admin';
   
-  if (!isAdmin) {
-    router.replace('/admin');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAdmin) router.replace('/admin');
+  }, [isAdmin]);
+  if (!isAdmin) return null;
   
   const handleSaveChanges = () => {
     setIsSaving(true);

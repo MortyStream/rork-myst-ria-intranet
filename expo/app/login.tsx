@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  TouchableOpacity, 
-  KeyboardAvoidingView, 
+import {
+  StyleSheet,
+  View,
+  Text,
+  TouchableOpacity,
+  KeyboardAvoidingView,
   Platform,
   ScrollView,
   Alert,
+  Switch,
+  Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Lock, Mail } from 'lucide-react-native';
+
+const localLogo = require('../assets/images/logo.png');
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
@@ -19,97 +23,119 @@ import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { reinitializeSupabase } from '@/utils/supabase';
 
+const SAVED_CREDENTIALS_KEY = 'mysteria-saved-credentials';
+
 export default function LoginScreen() {
   const router = useRouter();
   const { login, isLoading, error, refreshUserData } = useAuthStore();
-  const { darkMode, appName, logoType, logoText, supabaseUrl, supabaseKey } = useSettingsStore();
-  const theme = darkMode ? Colors.dark : Colors.light;
+  const { darkMode, appName, logoType, logoText, logoImageUrl, supabaseUrl, supabaseKey } = useSettingsStore();
   const appColors = useAppColors();
-  
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState('');
-  
+  const [rememberMe, setRememberMe] = useState(false);
+  const [savedCredentials, setSavedCredentials] = useState<{ email: string; password: string } | null>(null);
+
   // Ensure Supabase is initialized with the current settings
   useEffect(() => {
-    // Make sure Supabase is initialized with the current settings
     if (supabaseUrl && supabaseKey) {
       reinitializeSupabase();
     }
   }, [supabaseUrl, supabaseKey]);
-  
+
+  // Charger les identifiants sauvegardés
+  useEffect(() => {
+    AsyncStorage.getItem(SAVED_CREDENTIALS_KEY).then((raw) => {
+      if (raw) {
+        try {
+          const creds = JSON.parse(raw);
+          setSavedCredentials(creds);
+        } catch {}
+      }
+    });
+  }, []);
+
+  const doLogin = async (email: string, pwd: string) => {
+    await login(email, pwd);
+    const state = useAuthStore.getState();
+    // On se fie à isAuthenticated et à la présence d'un user — un "warning"
+    // non bloquant dans state.error ne doit pas empêcher la redirection.
+    if (state.isAuthenticated && state.user) {
+      try {
+        await refreshUserData();
+      } catch (e) {
+        console.log('refreshUserData error (ignored):', e);
+      }
+      // Premier login après installation → onboarding 3 écrans
+      const { hasSeenOnboarding } = useSettingsStore.getState();
+      router.replace(hasSeenOnboarding ? '/home' : '/onboarding');
+      return true;
+    }
+    return false;
+  };
+
   const handleLogin = async () => {
     if (!username || !password) {
       setFormError('Veuillez remplir tous les champs');
       return;
     }
-    
     setFormError('');
-    
     try {
-      console.log('Attempting login with provided credentials');
-      await login(username, password);
-      
-      // Check the auth store error state after login attempt
-      const currentError = useAuthStore.getState().error;
-      
-      if (!currentError) {
-        console.log('Login successful, refreshing user data and redirecting to home');
-        
-        // Ensure we have the latest user data from the database
-        await refreshUserData();
-        
-        router.replace('/home');
-      } else {
-        console.log('Login failed:', currentError);
-        // Error is already set in the store and will be displayed
+      const success = await doLogin(username, password);
+      if (success && rememberMe) {
+        await AsyncStorage.setItem(
+          SAVED_CREDENTIALS_KEY,
+          JSON.stringify({ email: username, password })
+        );
+        setSavedCredentials({ email: username, password });
       }
-    } catch (error) {
-      console.error('Login error:', error);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
-      Alert.alert('Erreur', `Une erreur est survenue lors de la connexion: ${error.message || JSON.stringify(error)}`);
+    } catch (error: any) {
+      Alert.alert('Erreur', `Connexion impossible: ${error.message || JSON.stringify(error)}`);
     }
   };
-  
+
   const handleQuickLogin = async () => {
+    if (!savedCredentials) return;
     setFormError('');
-    
     try {
-      console.log('Attempting quick admin login');
-      await login('kevin.perret@mysteriaevent.ch', 'MysteriaAdmin');
-      
-      // Check the auth store error state after login attempt
-      const currentError = useAuthStore.getState().error;
-      
-      if (!currentError) {
-        console.log('Quick login successful, refreshing user data and redirecting to home');
-        
-        // Ensure we have the latest user data from the database
-        await refreshUserData();
-        
-        router.replace('/home');
-      } else {
-        console.log('Quick login failed:', currentError);
-        // Error is already set in the store and will be displayed
-      }
-    } catch (error) {
-      console.error('Quick login error:', error);
-      console.error('Full error object:', JSON.stringify(error, null, 2));
-      Alert.alert('Erreur', `Une erreur est survenue lors de la connexion rapide: ${error.message || JSON.stringify(error)}`);
+      await doLogin(savedCredentials.email, savedCredentials.password);
+    } catch (error: any) {
+      Alert.alert('Erreur', `Connexion rapide impossible: ${error.message || JSON.stringify(error)}`);
     }
   };
-  
+
+  const handleForgetCredentials = async () => {
+    await AsyncStorage.removeItem(SAVED_CREDENTIALS_KEY);
+    setSavedCredentials(null);
+  };
+
   const handleForgotPassword = () => {
     router.push('/forgot-password');
   };
-  
+
+  const theme = darkMode ? Colors.dark : Colors.light;
+
+  const logoSource = (logoType === 'image' && logoImageUrl)
+    ? { uri: logoImageUrl }
+    : localLogo;
+
+  // Couleurs adaptées au thème
+  const bgColor = darkMode ? theme.background : '#ffffff';
+  const logoTint = darkMode ? undefined : appColors.primary;
+  const subtitleColor = darkMode ? theme.inactive : appColors.primary;
+  const formBg = darkMode ? theme.card : '#f5f5f5';
+  const textColor = theme.text;
+  const mutedColor = theme.inactive;
+  const inputIconColor = darkMode ? theme.text : appColors.primary;
+  const quickLoginBg = darkMode ? 'rgba(255,255,255,0.08)' : `${appColors.primary}15`;
+  const quickLoginBorder = darkMode ? 'rgba(255,255,255,0.2)' : `${appColors.primary}40`;
+  const quickLoginTextColor = darkMode ? '#ffffff' : appColors.primary;
+  const forgetTextColor = darkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
+
   return (
-    <LinearGradient
-      colors={[appColors.primary, appColors.primaryLight]}
-      style={styles.container}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-    >
+    // View fixe — pas de composant recréé à chaque render (évite le bug clavier)
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -120,24 +146,33 @@ export default function LoginScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <Text style={styles.logoText}>{logoText}</Text>
-            </View>
-            <Text style={styles.title}>{appName}</Text>
-            <Text style={styles.subtitle}>Intranet</Text>
+            {logoSource ? (
+              <Image
+                source={logoSource}
+                style={[styles.logoImage, logoTint ? { tintColor: logoTint } : undefined]}
+                resizeMode="contain"
+              />
+            ) : (
+              <View style={[styles.logoContainer, { backgroundColor: `${appColors.primary}15` }]}>
+                <Text style={[styles.logoText, { color: appColors.primary }]}>
+                  {(logoText || appName || 'M').charAt(0)}
+                </Text>
+              </View>
+            )}
+            <Text style={[styles.subtitle, { color: subtitleColor }]}>Intranet</Text>
           </View>
-          
-          <View style={styles.formContainer}>
+
+          <View style={[styles.formContainer, { backgroundColor: formBg }]}>
             <Input
               label="Nom d'utilisateur ou email"
               placeholder="Entrez votre identifiant"
               value={username}
               onChangeText={setUsername}
               autoCapitalize="none"
-              leftIcon={<Mail size={20} color={darkMode ? '#ffffff' : '#333333'} />}
+              leftIcon={<Mail size={20} color={inputIconColor} />}
               containerStyle={styles.inputContainer}
             />
-            
+
             <Input
               label="Mot de passe"
               placeholder="Entrez votre mot de passe"
@@ -145,16 +180,29 @@ export default function LoginScreen() {
               onChangeText={setPassword}
               secureTextEntry
               showPasswordToggle
-              leftIcon={<Lock size={20} color={darkMode ? '#ffffff' : '#333333'} />}
+              leftIcon={<Lock size={20} color={inputIconColor} />}
               containerStyle={styles.inputContainer}
             />
-            
+
             {(formError || error) && (
               <Text style={styles.errorText}>
                 {formError || error}
               </Text>
             )}
-            
+
+            {/* Mémoriser mes identifiants */}
+            <View style={styles.rememberRow}>
+              <Switch
+                value={rememberMe}
+                onValueChange={setRememberMe}
+                trackColor={{ false: theme.border, true: appColors.primary }}
+                thumbColor="#ffffff"
+              />
+              <Text style={[styles.rememberText, { color: mutedColor }]}>
+                Mémoriser mes identifiants
+              </Text>
+            </View>
+
             <Button
               title="Se connecter"
               onPress={handleLogin}
@@ -162,36 +210,44 @@ export default function LoginScreen() {
               style={styles.loginButton}
               fullWidth
             />
-            
-            {/* Quick Login button - only shown in development mode */}
-            {__DEV__ && (
-              <Button
-                title="Connexion rapide (Admin)"
-                onPress={handleQuickLogin}
-                style={styles.quickLoginButton}
-                textStyle={styles.quickLoginText}
-                fullWidth
-              />
+
+            {/* Connexion rapide — visible uniquement si des identifiants sont sauvegardés */}
+            {savedCredentials && (
+              <View style={styles.quickLoginContainer}>
+                <Button
+                  title={`⚡ Connexion rapide (${savedCredentials.email})`}
+                  onPress={handleQuickLogin}
+                  loading={isLoading}
+                  style={[styles.quickLoginButton, { backgroundColor: quickLoginBg, borderColor: quickLoginBorder }]}
+                  textStyle={[styles.quickLoginText, { color: quickLoginTextColor }]}
+                  fullWidth
+                />
+                <TouchableOpacity onPress={handleForgetCredentials} style={styles.forgetLink}>
+                  <Text style={[styles.forgetText, { color: forgetTextColor }]}>
+                    Oublier ces identifiants
+                  </Text>
+                </TouchableOpacity>
+              </View>
             )}
-            
+
             <TouchableOpacity
               onPress={handleForgotPassword}
               style={styles.forgotPasswordButton}
             >
-              <Text style={styles.forgotPasswordText}>
+              <Text style={[styles.forgotPasswordText, { color: mutedColor }]}>
                 Mot de passe oublié ?
               </Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.footer}>
-            <Text style={styles.footerText}>
+            <Text style={[styles.footerText, { color: mutedColor }]}>
               © {new Date().getFullYear()} {appName}
             </Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </LinearGradient>
+    </View>
   );
 }
 
@@ -212,11 +268,15 @@ const styles = StyleSheet.create({
     marginTop: 60,
     marginBottom: 40,
   },
+  logoImage: {
+    width: 240,
+    height: 80,
+    marginBottom: 24,
+  },
   logoContainer: {
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 16,
@@ -224,21 +284,15 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 48,
     fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 8,
   },
   subtitle: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontWeight: '600',
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   formContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 12,
+    borderRadius: 16,
     padding: 24,
     marginBottom: 24,
   },
@@ -250,24 +304,40 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
+  rememberRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 10,
+  },
+  rememberText: {
+    fontSize: 14,
+  },
   loginButton: {
-    marginTop: 8,
+    marginTop: 4,
+  },
+  quickLoginContainer: {
+    marginTop: 12,
   },
   quickLoginButton: {
-    marginTop: 12,
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   quickLoginText: {
-    color: '#ffffff',
+    fontSize: 14,
+  },
+  forgetLink: {
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  forgetText: {
+    fontSize: 12,
+    textDecorationLine: 'underline',
   },
   forgotPasswordButton: {
     marginTop: 16,
     alignItems: 'center',
   },
   forgotPasswordText: {
-    color: 'rgba(255, 255, 255, 0.8)',
     fontSize: 14,
   },
   footer: {
@@ -275,7 +345,6 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   footerText: {
-    color: 'rgba(255, 255, 255, 0.6)',
     fontSize: 12,
   },
 });

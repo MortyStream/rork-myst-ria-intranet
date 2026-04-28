@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -31,7 +31,7 @@ import { ResourceCategory } from '@/types/resource';
 export default function AdminCategoriesScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { categories, deleteCategory, updateCategory } = useResourcesStore();
+  const { categories, deleteCategory, updateCategory, resourceItems } = useResourcesStore();
   const { getUserById } = useUsersStore();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -39,10 +39,10 @@ export default function AdminCategoriesScreen() {
   // Check if user is admin or moderator
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
-  if (!isAdminOrModerator) {
-    router.replace('/admin');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAdminOrModerator) router.replace('/admin');
+  }, [isAdminOrModerator]);
+  if (!isAdminOrModerator) return null;
   
   const handleAddCategory = () => {
     router.push('/admin/category-form');
@@ -56,20 +56,41 @@ export default function AdminCategoriesScreen() {
   };
   
   const handleDeleteCategory = (category: ResourceCategory) => {
+    const itemCount = resourceItems.filter(it => it.categoryId === category.id).length;
+    const isHeavy = itemCount > 0;
+
+    const detail = isHeavy
+      ? `« ${category.name} » contient ${itemCount} élément${itemCount > 1 ? 's' : ''} (dossiers, fichiers, liens…).\n\nTout sera supprimé définitivement et ne pourra pas être récupéré.`
+      : `« ${category.name} » sera supprimée. Cette catégorie ne contient pas d'éléments.`;
+
     Alert.alert(
-      'Confirmer la suppression',
-      `Êtes-vous sûr de vouloir supprimer la catégorie "${category.name}" et tout son contenu ?`,
+      'Supprimer la catégorie ?',
+      detail,
       [
+        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Supprimer',
+          text: isHeavy ? `Tout supprimer (${itemCount})` : 'Supprimer',
           style: 'destructive',
           onPress: () => {
-            deleteCategory(category.id);
-            Alert.alert('Succès', 'Catégorie supprimée avec succès.');
+            if (isHeavy) {
+              // Étape 2 — confirmation finale pour les catégories pleines
+              Alert.alert(
+                'Vraiment ?',
+                `Confirmez la suppression définitive de « ${category.name} » et de ses ${itemCount} élément${itemCount > 1 ? 's' : ''}.`,
+                [
+                  { text: 'Non, annuler', style: 'cancel' },
+                  {
+                    text: 'Oui, tout supprimer',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await deleteCategory(category.id);
+                    },
+                  },
+                ]
+              );
+            } else {
+              deleteCategory(category.id);
+            }
           },
         },
       ]

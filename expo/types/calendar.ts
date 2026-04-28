@@ -12,6 +12,7 @@ export interface Event {
   startTime: string;
   endTime?: string;
   location?: string;
+  locationType?: 'visio' | 'onsite';
   color?: string;
   url?: string;
   fileUrl?: string;

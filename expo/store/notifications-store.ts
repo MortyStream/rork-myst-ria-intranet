@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Notification } from '@/types/notification';
 import { useAuthStore } from './auth-store';
 import { useResourcesStore } from './resources-store';
+import { getSupabase } from '@/utils/supabase';
+import { sendPushNotifications } from '@/utils/push-notifications';
 
 interface NotificationsState {
   notifications: Notification[];
@@ -13,6 +15,7 @@ interface NotificationsState {
 }
 
 interface NotificationsStore extends NotificationsState {
+  initializeNotifications: () => Promise<void>;
   addNotification: (notification: Omit<Notification, 'id' | 'read' | 'createdAt' | 'updatedAt'>) => void;
   markAsRead: (id: string) => void;
   markAllAsRead: () => void;
@@ -26,10 +29,32 @@ export const useNotificationsStore = create<NotificationsStore>()(
   persist(
     (set, get) => ({
       notifications: [],
-      isMessagingEnabled: false,
+      isMessagingEnabled: true,
       isLoading: false,
       error: null,
-      
+
+      initializeNotifications: async () => {
+        try {
+          const supabase = getSupabase();
+          const { data, error } = await supabase
+            .from('notifications')
+            .select('*')
+            .order('createdAt', { ascending: false });
+          if (error) throw error;
+          if (!data || data.length === 0) return;
+          set(state => {
+            const localReadMap = new Map(state.notifications.map(n => [n.id, n.read]));
+            const merged = data.map((n: Notification) => ({
+              ...n,
+              read: localReadMap.get(n.id) ?? false,
+            }));
+            return { notifications: merged };
+          });
+        } catch (error) {
+          console.log('Erreur chargement notifications:', error);
+        }
+      },
+
       addNotification: (notificationData) => {
         const newNotification: Notification = {
           ...notificationData,
@@ -38,40 +63,79 @@ export const useNotificationsStore = create<NotificationsStore>()(
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         };
-        
         set(state => ({
-          notifications: [newNotification, ...state.notifications]
+          notifications: [newNotification, ...state.notifications],
         }));
+
+        // Persist to Supabase
+        getSupabase()
+          .from('notifications')
+          .insert(newNotification)
+          .then(({ error }) => {
+            if (error) console.log('Erreur sync notification Supabase:', error);
+          });
+
+        // Send device push notification to targeted users
+        const targetIds = notificationData.targetUserIds ?? [];
+        if (targetIds.length > 0) {
+          sendPushNotifications(
+            targetIds,
+            notificationData.title,
+            notificationData.message
+          );
+        }
       },
       
       markAsRead: (id) => {
+        const now = new Date().toISOString();
         set(state => ({
-          notifications: state.notifications.map(notification => 
-            notification.id === id 
-              ? { 
-                  ...notification, 
-                  read: true,
-                  updatedAt: new Date().toISOString() 
-                } 
+          notifications: state.notifications.map(notification =>
+            notification.id === id
+              ? { ...notification, read: true, updatedAt: now }
               : notification
           )
         }));
+        getSupabase()
+          .from('notifications')
+          .update({ read: true, updatedAt: now })
+          .eq('id', id)
+          .then(({ error }) => {
+            if (error) console.log('Erreur markAsRead Supabase:', error);
+          });
       },
-      
+
       markAllAsRead: () => {
+        const now = new Date().toISOString();
+        const ids = get().notifications.filter(n => !n.read).map(n => n.id);
         set(state => ({
           notifications: state.notifications.map(notification => ({
             ...notification,
             read: true,
-            updatedAt: new Date().toISOString()
+            updatedAt: now,
           }))
         }));
+        if (ids.length > 0) {
+          getSupabase()
+            .from('notifications')
+            .update({ read: true, updatedAt: now })
+            .in('id', ids)
+            .then(({ error }) => {
+              if (error) console.log('Erreur markAllAsRead Supabase:', error);
+            });
+        }
       },
       
       deleteNotification: (id) => {
         set(state => ({
-          notifications: state.notifications.filter(notification => notification.id !== id)
+          notifications: state.notifications.filter(notification => notification.id !== id),
         }));
+        getSupabase()
+          .from('notifications')
+          .delete()
+          .eq('id', id)
+          .then(({ error }) => {
+            if (error) console.log('Erreur suppression notification Supabase:', error);
+          });
       },
       
       getUnreadCount: () => {
@@ -80,26 +144,30 @@ export const useNotificationsStore = create<NotificationsStore>()(
       
       getUserNotifications: () => {
         const currentUser = useAuthStore.getState().user;
-        
+
         if (!currentUser) return [];
-        
-        // Get user subscriptions safely
+
         const userSubscriptions = useResourcesStore.getState().getUserSubscriptions(currentUser.id);
-        
+        const isAdmin = currentUser.role === 'admin';
+
         return get().notifications.filter(notification => {
-          // Check if notification targets user's role
-          const targetsByRole = notification.targetRoles?.includes(currentUser.role) || false;
-          
-          // Check if notification targets user directly
-          const targetsUserDirectly = notification.targetUserIds?.includes(currentUser.id) || false;
-          
-          // Check if user is subscribed to a category mentioned in the notification
-          const isSubscribedToCategory = notification.categoryId && userSubscriptions.includes(notification.categoryId);
-          
-          // Admin sees all notifications
-          const isAdmin = currentUser.role === 'admin';
-          
-          return isAdmin || targetsByRole || targetsUserDirectly || isSubscribedToCategory;
+          const hasExplicitTargets =
+            notification.targetUserIds && notification.targetUserIds.length > 0;
+
+          // Si la notif cible des utilisateurs précis, seuls eux la voient —
+          // même un admin ne doit pas voir une notif destinée à quelqu'un d'autre.
+          if (hasExplicitTargets) {
+            return notification.targetUserIds!.includes(currentUser.id);
+          }
+
+          // Notif sans ciblage individuel : vérifier rôle, abonnement, ou admin.
+          const targetsByRole =
+            notification.targetRoles?.includes(currentUser.role) || false;
+          const isSubscribedToCategory =
+            !!(notification.categoryId &&
+              userSubscriptions.includes(notification.categoryId));
+
+          return isAdmin || targetsByRole || isSubscribedToCategory;
         });
       },
       

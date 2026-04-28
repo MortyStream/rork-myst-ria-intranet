@@ -93,10 +93,12 @@ export default function DirectoryScreen() {
     );
   });
   
-  // Sort users by last name
-  const sortedUsers = [...filteredUsers].sort((a, b) => 
-    a.lastName.localeCompare(b.lastName)
-  );
+  // Tri alphabétique : nom puis prénom, insensible aux accents et à la casse
+  const sortedUsers = [...filteredUsers].sort((a, b) => {
+    const lastCmp = (a.lastName ?? '').localeCompare(b.lastName ?? '', 'fr', { sensitivity: 'base' });
+    if (lastCmp !== 0) return lastCmp;
+    return (a.firstName ?? '').localeCompare(b.firstName ?? '', 'fr', { sensitivity: 'base' });
+  });
   
   const renderContent = () => {
     if (isLoading && !isRefreshing) {

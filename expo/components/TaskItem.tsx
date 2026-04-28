@@ -5,21 +5,26 @@ import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
 import { useUsersStore } from '@/store/users-store';
 import { useResourcesStore } from '@/store/resources-store';
-import { 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Clock,
+  CheckCircle,
+  AlertCircle,
   XCircle,
   Calendar,
-  Flag
+  Flag,
+  Circle,
 } from 'lucide-react-native';
 
 interface TaskItemProps {
   task: Task;
   onPress: () => void;
+  /** Callback quand l'user clique sur la checkbox ronde. Toggle done/pending. */
+  onToggleDone?: () => void;
+  /** Si true, affiche la checkbox tappable. Sinon, rien (observateur). */
+  canToggleDone?: boolean;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone, canToggleDone }) => {
   const { darkMode } = useSettingsStore();
   const { getUserById } = useUsersStore();
   const { getCategoryById } = useResourcesStore();
@@ -142,11 +147,39 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress }) => {
       activeOpacity={0.7}
     >
       <View style={styles.header}>
-        <Text style={[styles.title, { color: theme.text }]} numberOfLines={1}>
+        {canToggleDone && onToggleDone && (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation();
+              onToggleDone();
+            }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 6 }}
+            style={styles.checkboxTouchable}
+            accessibilityLabel={
+              task.status === 'completed' || task.status === 'validated'
+                ? 'Marquer comme non terminée'
+                : 'Marquer comme terminée'
+            }
+          >
+            {task.status === 'completed' || task.status === 'validated' ? (
+              <CheckCircle size={24} color={theme.success} fill={`${theme.success}25`} />
+            ) : (
+              <Circle size={24} color={darkMode ? theme.inactive : '#999'} strokeWidth={2} />
+            )}
+          </TouchableOpacity>
+        )}
+        <Text
+          style={[
+            styles.title,
+            { color: theme.text },
+            (task.status === 'completed' || task.status === 'validated') && styles.titleDone,
+          ]}
+          numberOfLines={1}
+        >
           {task.title}
         </Text>
         <View style={[
-          styles.statusBadge, 
+          styles.statusBadge,
           { backgroundColor: `${getStatusColor()}20` }
         ]}>
           {getStatusIcon()}
@@ -203,13 +236,13 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress }) => {
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 8,
+    borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
     elevation: 2,
   },
   header: {
@@ -220,16 +253,25 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     flex: 1,
     marginRight: 8,
+    letterSpacing: -0.2,
+  },
+  titleDone: {
+    textDecorationLine: 'line-through',
+    opacity: 0.6,
+  },
+  checkboxTouchable: {
+    marginRight: 10,
+    justifyContent: 'center',
   },
   statusBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999,
   },
   statusText: {
     fontSize: 12,

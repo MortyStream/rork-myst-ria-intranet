@@ -16,8 +16,7 @@ import {
   Calendar,
   Clock,
   MapPin,
-  FileText,
-  Link as LinkIcon,
+  Video,
   Edit,
   Trash,
   Share2,
@@ -81,9 +80,22 @@ export default function EventDetailScreen() {
     ? event.participants.find(p => p.userId === user.id)?.status 
     : null;
 
-  // Trier les participants par statut
-  const sortedParticipants = [...(event.participants || [])].sort((a, b) => {
-    // Ordre: confirmed, pending, declined
+  // Dédoublonnage défensif : si la base contient accidentellement des participants
+  // en double (événements créés avant le fix), on garde le premier (priorité confirmed).
+  const participantMap = new Map<string, EventParticipant>();
+  (event.participants || []).forEach((p) => {
+    const existing = participantMap.get(p.userId);
+    if (!existing) {
+      participantMap.set(p.userId, p);
+    } else {
+      // On préfère 'confirmed' > 'declined' > 'pending'
+      const rank = { confirmed: 0, declined: 1, pending: 2 } as const;
+      if (rank[p.status] < rank[existing.status]) {
+        participantMap.set(p.userId, p);
+      }
+    }
+  });
+  const sortedParticipants = Array.from(participantMap.values()).sort((a, b) => {
     const statusOrder = { confirmed: 0, pending: 1, declined: 2 };
     return statusOrder[a.status] - statusOrder[b.status];
   });
@@ -100,37 +112,60 @@ export default function EventDetailScreen() {
   };
 
   const handleDeleteEvent = () => {
+    const participantCount = event.participants?.length ?? 0;
+    const detail = participantCount > 0
+      ? `« ${event.title} » sera retiré du calendrier de ${participantCount} participant${participantCount > 1 ? 's' : ''}.`
+      : `« ${event.title} » sera supprimé.`;
+
+    // Étape 1 : annonce l'impact
     Alert.alert(
-      'Confirmer la suppression',
-      'Êtes-vous sûr de vouloir supprimer cet événement ?',
+      'Supprimer l\'événement ?',
+      `${detail}\n\nCette action est définitive et ne peut pas être annulée.`,
       [
         { text: 'Annuler', style: 'cancel' },
         {
           text: 'Supprimer',
           style: 'destructive',
           onPress: () => {
-            deleteEvent(event.id);
-            Alert.alert('Succès', 'Événement supprimé avec succès.');
-            router.back();
+            // Étape 2 : confirmation finale (uniquement si participants impactés)
+            if (participantCount > 0) {
+              Alert.alert(
+                'Confirmer la suppression',
+                `Vous allez vraiment supprimer « ${event.title} » et notifier ${participantCount} participant${participantCount > 1 ? 's' : ''} ?`,
+                [
+                  { text: 'Non, annuler', style: 'cancel' },
+                  {
+                    text: 'Oui, supprimer',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await deleteEvent(event.id);
+                      router.back();
+                    },
+                  },
+                ]
+              );
+            } else {
+              deleteEvent(event.id).then(() => router.back());
+            }
           }
         }
       ]
     );
   };
 
-  const handleOpenLink = async () => {
-    if (!event.url) return;
-
+  const handleOpenMaps = async () => {
+    if (!event.location) return;
+    const query = encodeURIComponent(event.location);
+    const url = Platform.select({
+      ios: `http://maps.apple.com/?q=${query}`,
+      android: `geo:0,0?q=${query}`,
+      default: `https://www.google.com/maps/search/?api=1&query=${query}`,
+    });
     try {
-      const canOpen = await Linking.canOpenURL(event.url);
-      if (canOpen) {
-        await Linking.openURL(event.url);
-      } else {
-        Alert.alert('Erreur', 'Impossible d\'ouvrir ce lien.');
-      }
+      await Linking.openURL(url!);
     } catch (error) {
-      console.error('Error opening URL:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'ouverture du lien.');
+      console.error('Error opening maps:', error);
+      Alert.alert('Erreur', 'Impossible d\'ouvrir Maps.');
     }
   };
 
@@ -207,6 +242,12 @@ ${event.location || ''}`;
     });
   };
 
+  // Nom affiché uniquement ici : "Prénom L." pour éviter que le statut soit croppé
+  const formatShortName = (firstName: string, lastName: string) => {
+    const initial = lastName && lastName.length > 0 ? `${lastName.charAt(0).toUpperCase()}.` : '';
+    return `${firstName} ${initial}`.trim();
+  };
+
   const renderParticipantItem = ({ item }: { item: EventParticipant }) => {
     const participant = getUserById(item.userId);
     if (!participant) return null;
@@ -220,8 +261,12 @@ ${event.location || ''}`;
             size={36}
           />
           <View style={styles.participantDetails}>
-            <Text style={[styles.participantName, { color: theme.text }]}>
-              {participant.firstName} {participant.lastName}
+            <Text
+              style={[styles.participantName, { color: theme.text }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+            >
+              {formatShortName(participant.firstName, participant.lastName)}
             </Text>
             <Text style={[styles.participantRole, { color: darkMode ? theme.inactive : '#666666' }]}>
               {participant.role}
@@ -283,6 +328,81 @@ ${event.location || ''}`;
           </Text>
         </View>
 
+        {/* RSVP tout en haut : si invité en attente → gros boutons visibles immédiatement */}
+        {currentUserStatus === 'pending' && (
+          <View style={[styles.rsvpBanner, { backgroundColor: `${theme.warning}15`, borderColor: theme.warning }]}>
+            <Text style={[styles.rsvpBannerTitle, { color: theme.text }]}>
+              Vous êtes invité·e à cet événement
+            </Text>
+            <Text style={[styles.rsvpBannerSubtitle, { color: darkMode ? theme.inactive : '#666' }]}>
+              Merci de répondre pour confirmer votre présence.
+            </Text>
+            <View style={styles.rsvpButtons}>
+              <Button
+                title="✓ Accepter"
+                onPress={() => handleUpdateStatus('confirmed')}
+                style={[styles.rsvpButton, { backgroundColor: theme.success }]}
+                fullWidth
+              />
+              <Button
+                title="✕ Décliner"
+                onPress={() => handleUpdateStatus('declined')}
+                style={[styles.rsvpButton, { backgroundColor: theme.error }]}
+                fullWidth
+              />
+            </View>
+          </View>
+        )}
+
+        {/* Statut actuel remonté aussi en haut avec bouton pour changer */}
+        {(currentUserStatus === 'confirmed' || currentUserStatus === 'declined') && (
+          <View style={[
+            styles.currentStatusContainer,
+            {
+              backgroundColor:
+                currentUserStatus === 'confirmed' ? `${theme.success}20` : `${theme.error}20`
+            }
+          ]}>
+            {currentUserStatus === 'confirmed' ? (
+              <>
+                <CheckCircle size={20} color={theme.success} style={styles.currentStatusIcon} />
+                <Text style={[styles.currentStatusText, { color: theme.success }]}>
+                  Vous participez
+                </Text>
+              </>
+            ) : (
+              <>
+                <XCircle size={20} color={theme.error} style={styles.currentStatusIcon} />
+                <Text style={[styles.currentStatusText, { color: theme.error }]}>
+                  Vous avez décliné
+                </Text>
+              </>
+            )}
+
+            <View style={styles.changeStatusButtons}>
+              {currentUserStatus === 'confirmed' ? (
+                <Button
+                  title="Décliner"
+                  onPress={() => handleUpdateStatus('declined')}
+                  variant="outline"
+                  size="small"
+                  style={styles.changeStatusButton}
+                  textStyle={{ color: theme.error }}
+                />
+              ) : (
+                <Button
+                  title="Accepter"
+                  onPress={() => handleUpdateStatus('confirmed')}
+                  variant="outline"
+                  size="small"
+                  style={styles.changeStatusButton}
+                  textStyle={{ color: theme.success }}
+                />
+              )}
+            </View>
+          </View>
+        )}
+
         <View style={styles.eventDetails}>
           <View style={styles.detailItem}>
             <Calendar size={20} color={theme.primary} style={styles.detailIcon} />
@@ -298,29 +418,30 @@ ${event.location || ''}`;
             </Text>
           </View>
 
-          {event.location && (
+          {event.locationType === 'visio' && (
             <View style={styles.detailItem}>
-              <MapPin size={20} color={theme.primary} style={styles.detailIcon} />
+              <Video size={20} color={theme.primary} style={styles.detailIcon} />
               <Text style={[styles.detailText, { color: theme.text }]}>
-                {event.location}
+                Visioconférence
               </Text>
             </View>
           )}
 
-          {event.url && (
-            <TouchableOpacity style={styles.detailItem} onPress={handleOpenLink}>
-              <LinkIcon size={20} color={theme.primary} style={styles.detailIcon} />
+          {event.locationType === 'onsite' && event.location && (
+            <TouchableOpacity style={styles.detailItem} onPress={handleOpenMaps}>
+              <MapPin size={20} color={theme.primary} style={styles.detailIcon} />
               <Text style={[styles.detailText, { color: theme.primary, textDecorationLine: 'underline' }]}>
-                Lien externe
+                {event.location}
               </Text>
             </TouchableOpacity>
           )}
 
-          {event.fileUrl && (
+          {/* Rétro-compat : événements anciens sans locationType */}
+          {!event.locationType && event.location && (
             <View style={styles.detailItem}>
-              <FileText size={20} color={theme.primary} style={styles.detailIcon} />
+              <MapPin size={20} color={theme.primary} style={styles.detailIcon} />
               <Text style={[styles.detailText, { color: theme.text }]}>
-                Document joint
+                {event.location}
               </Text>
             </View>
           )}
@@ -395,76 +516,6 @@ ${event.location || ''}`;
             </>
           )}
         </Card>
-
-        {/* Boutons de réponse pour l'utilisateur actuel si en attente */}
-        {currentUserStatus === 'pending' && (
-          <View style={styles.responseContainer}>
-            <Text style={[styles.responseTitle, { color: theme.text }]}>
-              Répondre à l'invitation
-            </Text>
-            <View style={styles.responseButtons}>
-              <Button
-                title="Accepter"
-                onPress={() => handleUpdateStatus('confirmed')}
-                style={[styles.responseButton, { backgroundColor: theme.success }]}
-              />
-              <Button
-                title="Décliner"
-                onPress={() => handleUpdateStatus('declined')}
-                style={[styles.responseButton, { backgroundColor: theme.error }]}
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Affichage du statut actuel de l'utilisateur */}
-        {(currentUserStatus === 'confirmed' || currentUserStatus === 'declined') && (
-          <View style={[
-            styles.currentStatusContainer,
-            { 
-              backgroundColor: 
-                currentUserStatus === 'confirmed' ? `${theme.success}20` : `${theme.error}20`
-            }
-          ]}>
-            {currentUserStatus === 'confirmed' ? (
-              <>
-                <CheckCircle size={20} color={theme.success} style={styles.currentStatusIcon} />
-                <Text style={[styles.currentStatusText, { color: theme.success }]}>
-                  Vous participez à cet événement
-                </Text>
-              </>
-            ) : (
-              <>
-                <XCircle size={20} color={theme.error} style={styles.currentStatusIcon} />
-                <Text style={[styles.currentStatusText, { color: theme.error }]}>
-                  Vous avez décliné cet événement
-                </Text>
-              </>
-            )}
-            
-            <View style={styles.changeStatusButtons}>
-              {currentUserStatus === 'confirmed' ? (
-                <Button
-                  title="Décliner"
-                  onPress={() => handleUpdateStatus('declined')}
-                  variant="outline"
-                  size="small"
-                  style={styles.changeStatusButton}
-                  textStyle={{ color: theme.error }}
-                />
-              ) : (
-                <Button
-                  title="Accepter"
-                  onPress={() => handleUpdateStatus('confirmed')}
-                  variant="outline"
-                  size="small"
-                  style={styles.changeStatusButton}
-                  textStyle={{ color: theme.success }}
-                />
-              )}
-            </View>
-          </View>
-        )}
 
         <View style={styles.actionsContainer}>
           <Button
@@ -604,10 +655,13 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
   },
   participantInfo: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    marginRight: 8,
   },
   participantDetails: {
+    flex: 1,
     marginLeft: 12,
   },
   participantName: {
@@ -637,21 +691,28 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     padding: 16,
   },
-  responseContainer: {
+  rsvpBanner: {
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 24,
   },
-  responseTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
+  rsvpBannerTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 4,
   },
-  responseButtons: {
+  rsvpBannerSubtitle: {
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  rsvpButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 10,
   },
-  responseButton: {
+  rsvpButton: {
     flex: 1,
-    marginHorizontal: 4,
+    minHeight: 48,
   },
   currentStatusContainer: {
     flexDirection: 'row',

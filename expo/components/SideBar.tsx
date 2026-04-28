@@ -1,34 +1,30 @@
-import React, { useEffect } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import React from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   ScrollView,
   Image,
-  Platform,
-  Alert
+  Alert,
 } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { 
-  Home, 
-  Users, 
-  BookOpen, 
+import {
+  Home,
+  Users,
+  BookOpen,
   Link,
   Bell,
   Settings,
   LogOut,
   CheckSquare,
   Calendar,
-  RefreshCw,
-  AlertTriangle
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
 import { Avatar } from '@/components/Avatar';
-import { getSupabase, reinitializeSupabase, checkAndRestoreSession, testAuth, clearAuthData } from '@/utils/supabase';
 
 interface SideBarProps {
   onClose?: () => void;
@@ -38,15 +34,28 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
   const router = useRouter();
   const pathname = usePathname();
   const insets = useSafeAreaInsets();
-  const { user, logout, refreshSession, ensureSupabaseReady, hardReset } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const { darkMode, appName, logoType, logoText, logoImageUrl } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const appColors = useAppColors();
 
   const handleLogout = () => {
-    logout();
-    router.replace('/directory');
-    if (onClose) onClose();
+    Alert.alert(
+      'Déconnexion',
+      'Êtes-vous sûr de vouloir vous déconnecter ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        {
+          text: 'Se déconnecter',
+          style: 'destructive',
+          onPress: async () => {
+            if (onClose) onClose();
+            await logout();
+            router.replace('/login');
+          },
+        },
+      ]
+    );
   };
 
   const navigateTo = (path: string) => {
@@ -54,107 +63,6 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
     if (onClose) onClose();
   };
   
-  const handleRefreshSession = async () => {
-    try {
-      console.log("Manually refreshing Supabase session...");
-      
-      // Ensure Supabase is ready
-      await ensureSupabaseReady();
-      
-      // Ensure Supabase is initialized
-      const supabase = getSupabase();
-      console.log("Supabase client ready for refresh:", !!supabase);
-      
-      // Check for existing session
-      await checkAndRestoreSession();
-      
-      // Test if auth is working
-      const authWorks = await testAuth();
-      console.log("Auth test result after refresh:", authWorks);
-      
-      // Refresh auth store session
-      const hasSession = await refreshSession();
-      
-      // If on web, log the Supabase status
-      if (Platform.OS === 'web') {
-        console.log("Supabase status after refresh: initialized");
-      }
-      
-      if (hasSession) {
-        Alert.alert("Succès", "Session Supabase rafraîchie avec succès");
-      } else {
-        Alert.alert("Information", "Aucune session active trouvée");
-      }
-    } catch (error) {
-      console.error("Error refreshing session:", error);
-      Alert.alert("Erreur", "Impossible de rafraîchir la session");
-    }
-  };
-  
-  const handleReinitializeSupabase = async () => {
-    try {
-      console.log("Manually reinitializing Supabase...");
-      
-      // Reinitialize Supabase
-      const newInstance = reinitializeSupabase();
-      console.log("Supabase reinitialized:", !!newInstance);
-      
-      // Check for existing session
-      await checkAndRestoreSession();
-      
-      // Test if auth is working
-      const authWorks = await testAuth();
-      console.log("Auth test result after reinitialization:", authWorks);
-      
-      // Refresh auth store session
-      const hasSession = await refreshSession();
-      
-      // If on web, log the Supabase status
-      if (Platform.OS === 'web') {
-        console.log("Supabase status after reinitialization: initialized");
-      }
-      
-      Alert.alert("Succès", "Supabase réinitialisé avec succès");
-    } catch (error) {
-      console.error("Error reinitializing Supabase:", error);
-      Alert.alert("Erreur", "Impossible de réinitialiser Supabase");
-    }
-  };
-  
-  const handleHardReset = async () => {
-    try {
-      Alert.alert(
-        "Réinitialisation complète",
-        "Êtes-vous sûr de vouloir effectuer une réinitialisation complète ? Cela effacera toutes les données d'authentification et vous devrez vous reconnecter.",
-        [
-          {
-            text: "Annuler",
-            style: "cancel"
-          },
-          {
-            text: "Réinitialiser",
-            style: "destructive",
-            onPress: async () => {
-              console.log("Performing hard reset...");
-              
-              // Perform hard reset
-              await hardReset();
-              
-              router.replace('/directory');
-              
-              if (onClose) onClose();
-              
-              Alert.alert("Succès", "Réinitialisation complète effectuée avec succès");
-            }
-          }
-        ]
-      );
-    } catch (error) {
-      console.error("Error during hard reset:", error);
-      Alert.alert("Erreur", "Impossible d'effectuer la réinitialisation complète");
-    }
-  };
-
   const menuItems = [
     {
       name: 'Accueil',
@@ -288,43 +196,6 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
             </TouchableOpacity>
           );
         })}
-        {/* Debug options */}
-        {__DEV__ && (
-          <>
-            <View style={styles.debugSectionHeader}>
-              <Text style={[styles.debugSectionTitle, { color: theme.inactive }]}>
-                Outils de débogage
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: `${theme.info}15` }]}
-              onPress={handleRefreshSession}
-            >
-              <RefreshCw size={24} color={theme.info} />
-              <Text style={[styles.menuItemText, { color: theme.info }]}>
-                Rafraîchir Session
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: `${theme.warning}15` }]}
-              onPress={handleReinitializeSupabase}
-            >
-              <RefreshCw size={24} color={theme.warning} />
-              <Text style={[styles.menuItemText, { color: theme.warning }]}>
-                Réinitialiser Supabase
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: `${theme.error}15` }]}
-              onPress={handleHardReset}
-            >
-              <AlertTriangle size={24} color={theme.error} />
-              <Text style={[styles.menuItemText, { color: theme.error }]}>
-                Réinitialisation complète
-              </Text>
-            </TouchableOpacity>
-          </>
-        )}
       </ScrollView>
       <TouchableOpacity 
         style={[styles.logoutButton, { borderTopColor: theme.border }]}
@@ -407,16 +278,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     marginLeft: 16,
-  },
-  debugSectionHeader: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    marginTop: 8,
-  },
-  debugSectionTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    textTransform: 'uppercase',
   },
   logoutButton: {
     flexDirection: 'row',

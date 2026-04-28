@@ -6,15 +6,12 @@ import {
   RefreshControl,
   Text,
 } from 'react-native';
-import { useRouter } from 'expo-router';
 import { Plus } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore } from '@/store/tasks-store';
-import { useUsersStore } from '@/store/users-store';
 import { Colors } from '@/constants/colors';
-import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { TaskItem } from '@/components/TaskItem';
@@ -25,24 +22,27 @@ import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 
 export default function TasksScreen() {
-  const router = useRouter();
   const { user } = useAuthStore();
   const { darkMode } = useSettingsStore();
   const {
     getUserTasks,
     getOverdueTasks,
-    getUpcomingDeadlines,
     initializeTasks,
+    checkAndSendTaskReminders,
+    updateTaskStatus,
   } = useTasksStore();
-  
+
   const theme = darkMode ? Colors.dark : Colors.light;
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   useEffect(() => {
-    initializeTasks();
+    initializeTasks().then(() => {
+      if (user?.id) checkAndSendTaskReminders(user.id);
+    });
   }, []);
   
   const userTasks = user ? getUserTasks(user.id) : [];
@@ -71,6 +71,22 @@ export default function TasksScreen() {
   const handleTaskPress = (task: Task) => {
     setSelectedTask(task);
   };
+
+  const handleToggleDone = async (task: Task) => {
+    const isDone = task.status === 'completed' || task.status === 'validated';
+    const nextStatus = isDone ? 'pending' : 'completed';
+    try {
+      await updateTaskStatus(task.id, nextStatus);
+    } catch (e) {
+      console.error('Erreur toggle statut t\u00e2che:', e);
+    }
+  };
+
+  const canUserToggle = (task: Task): boolean => {
+    if (!user) return false;
+    // L'utilisateur peut cocher s'il est assign\u00e9 OU s'il a cr\u00e9\u00e9 la t\u00e2che
+    return task.assignedTo.includes(user.id) || task.assignedBy === user.id;
+  };
   
   const handleAddTask = () => {
     setShowTaskForm(true);
@@ -89,14 +105,17 @@ export default function TasksScreen() {
     setSelectedTask(null);
   };
   
-  const canAddTask = user?.role === 'admin' || user?.role === 'responsable_pole' || user?.role === 'responsable_secteur';
-  const isAdmin = user?.role === 'admin' || user?.role === 'responsable_pole';
+  const canAddTask = user?.role === 'admin' || user?.role === 'moderator';
   
   return (
-    <AppLayout>
+    <AppLayout
+      hideMenuButton={true}
+      onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
+    >
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
           title="Mes tâches ✓"
+          onTitlePress={() => toggleSidebar?.()}
           rightComponent={
             canAddTask ? (
               <Button
@@ -145,10 +164,12 @@ export default function TasksScreen() {
                 En retard ({overdueTasks.length})
               </Text>
               {overdueTasks.map(task => (
-                <TaskItem 
-                  key={task.id} 
-                  task={task} 
-                  onPress={() => handleTaskPress(task)} 
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onPress={() => handleTaskPress(task)}
+                  onToggleDone={() => handleToggleDone(task)}
+                  canToggleDone={canUserToggle(task)}
                 />
               ))}
             </View>
@@ -162,10 +183,12 @@ export default function TasksScreen() {
                 </Text>
               ) : null}
               {tasksToShow.map(task => (
-                <TaskItem 
-                  key={task.id} 
-                  task={task} 
-                  onPress={() => handleTaskPress(task)} 
+                <TaskItem
+                  key={task.id}
+                  task={task}
+                  onPress={() => handleTaskPress(task)}
+                  onToggleDone={() => handleToggleDone(task)}
+                  canToggleDone={canUserToggle(task)}
                 />
               ))}
             </View>
@@ -182,21 +205,6 @@ export default function TasksScreen() {
             />
           )}
           
-          {isAdmin ? (
-            <Card style={styles.adminCard}>
-              <Text style={[styles.adminCardTitle, { color: theme.text }]}>
-                Gestion des tâches
-              </Text>
-              <Text style={[styles.adminCardText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                En tant qu'administrateur, vous pouvez gérer toutes les tâches de l'équipe.
-              </Text>
-              <Button
-                title="Voir toutes les tâches"
-                onPress={() => router.push('/admin')}
-                style={styles.adminButton}
-              />
-            </Card>
-          ) : null}
         </ScrollView>
         
         {selectedTask ? (
@@ -236,23 +244,10 @@ const styles = StyleSheet.create({
   section: { marginBottom: 24 },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 16,
+    letterSpacing: -0.3,
   },
   emptyState: { marginTop: 40 },
-  adminCard: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  adminCardTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  adminCardText: {
-    fontSize: 14,
-    marginBottom: 16,
-  },
-  adminButton: { alignSelf: 'flex-start' },
   addButton: { marginLeft: 8 },
 });

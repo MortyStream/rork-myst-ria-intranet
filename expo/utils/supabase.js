@@ -63,12 +63,82 @@ const createPostgrestClient = (authClient) => {
   });
 };
 
+const createStorageClient = (authClient) => {
+  const storageUrl = `${SUPABASE_URL}/storage/v1`;
+
+  const getAuthHeaders = async () => {
+    const { data } = await authClient.getSession();
+    const token = data?.session?.access_token ?? SUPABASE_ANON_KEY;
+    return {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+    };
+  };
+
+  return {
+    from: (bucket) => ({
+      upload: async (path, file, options = {}) => {
+        try {
+          const headers = await getAuthHeaders();
+          const contentType = options.contentType ?? 'application/octet-stream';
+          const url = `${storageUrl}/object/${bucket}/${path}`;
+          const method = options.upsert ? 'PUT' : 'POST';
+
+          const response = await fetch(url, {
+            method,
+            headers: {
+              ...headers,
+              'Content-Type': contentType,
+              'x-upsert': options.upsert ? 'true' : 'false',
+            },
+            body: file,
+          });
+
+          const json = await response.json().catch(() => ({}));
+          if (!response.ok) {
+            return { data: null, error: json };
+          }
+          return { data: json, error: null };
+        } catch (err) {
+          return { data: null, error: { message: err.message } };
+        }
+      },
+
+      getPublicUrl: (path) => {
+        return {
+          data: {
+            publicUrl: `${storageUrl}/object/public/${bucket}/${path}`,
+          },
+        };
+      },
+
+      remove: async (paths) => {
+        try {
+          const headers = await getAuthHeaders();
+          const response = await fetch(`${storageUrl}/object/${bucket}`, {
+            method: 'DELETE',
+            headers: { ...headers, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ prefixes: paths }),
+          });
+          const json = await response.json().catch(() => ({}));
+          if (!response.ok) return { data: null, error: json };
+          return { data: json, error: null };
+        } catch (err) {
+          return { data: null, error: { message: err.message } };
+        }
+      },
+    }),
+  };
+};
+
 const createSupabaseLikeClient = () => {
   const auth = createAuthClient();
   const postgrest = createPostgrestClient(auth);
+  const storage = createStorageClient(auth);
 
   return {
     auth,
+    storage,
     from: (table) => postgrest.from(table),
     schema: (schema) => postgrest.schema(schema),
     rpc: (fn, args, options) => postgrest.rpc(fn, args, options),

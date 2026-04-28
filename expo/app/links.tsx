@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -11,6 +11,7 @@ import {
   Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Link as LinkIcon, Plus, ExternalLink, Globe, Video, Newspaper } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
@@ -26,23 +27,27 @@ import { Header } from '@/components/Header';
 export default function LinksScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { externalLinks } = useResourcesStore();
+  const { externalLinks, initializeExternalLinks } = useResourcesStore();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   
   const [refreshing, setRefreshing] = useState(false);
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
   const [pressedId, setPressedId] = useState<string | null>(null);
-  
-  // Animation value for pressed state
+
   const pressAnimation = new Animated.Value(1);
-  
-  const onRefresh = React.useCallback(() => {
+
+  // Re-fetch à chaque fois que l'écran reçoit le focus (retour depuis link-form, etc.)
+  useFocusEffect(
+    useCallback(() => {
+      initializeExternalLinks();
+    }, [])
+  );
+
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    // In a real app, you would fetch fresh data here
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    await initializeExternalLinks();
+    setRefreshing(false);
   }, []);
   
   const handleAddLink = () => {
@@ -66,11 +71,10 @@ export default function LinksScreen() {
       })
     ]).start();
     
+    // Pas de canOpenURL : échoue sur Android 11+ sans permission QUERY_ALL_PACKAGES.
+    // openURL directement — si aucun navigateur n'est installé (très rare), le catch gère.
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      }
+      await Linking.openURL(url);
     } catch (error) {
       console.error('Error opening URL:', error);
     } finally {

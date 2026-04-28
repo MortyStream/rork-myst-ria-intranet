@@ -11,6 +11,7 @@ import {
   Switch,
   TextInput,
   FlatList,
+  Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -19,9 +20,7 @@ import {
   Calendar,
   Clock,
   MapPin,
-  FileText,
-  Link,
-  Upload,
+  Video,
   PinIcon,
   Palette,
   Users,
@@ -34,6 +33,8 @@ import { useSettingsStore } from '@/store/settings-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useUsersStore } from '@/store/users-store';
 import { useResourcesStore } from '@/store/resources-store';
+import { useUserGroupsStore } from '@/store/user-groups-store';
+import { useNotificationsStore } from '@/store/notifications-store';
 import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
@@ -60,9 +61,11 @@ export default function EventFormScreen() {
   const { user } = useAuthStore();
   const { users } = useUsersStore();
   const { categories, initializeDefaultCategories } = useResourcesStore();
+  const { groups, initializeGroups } = useUserGroupsStore();
 
   useEffect(() => {
     initializeDefaultCategories();
+    initializeGroups();
   }, []);
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -82,11 +85,12 @@ export default function EventFormScreen() {
   const [description, setDescription] = useState(existingEvent?.description || '');
   const [startDate, setStartDate] = useState(initialDate);
   const [endDate, setEndDate] = useState(existingEvent?.endTime ? new Date(existingEvent.endTime) : new Date(initialDate.getTime() + 60 * 60 * 1000));
+  const [locationType, setLocationType] = useState<'visio' | 'onsite'>(
+    existingEvent?.locationType || 'onsite'
+  );
   const [location, setLocation] = useState(existingEvent?.location || '');
-  const [url, setUrl] = useState(existingEvent?.url || '');
   const [color, setColor] = useState(existingEvent?.color || EVENT_COLORS[0]);
   const [isPinned, setIsPinned] = useState(existingEvent?.isPinned || false);
-  const [fileName, setFileName] = useState(existingEvent?.fileUrl ? 'Fichier déjà téléchargé' : '');
   const [categoryId, setCategoryId] = useState(existingEvent?.categoryId || '');
   const [participants, setParticipants] = useState<string[]>(
     existingEvent?.participants?.map(p => p.userId) || []
@@ -96,9 +100,12 @@ export default function EventFormScreen() {
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
+  // Valeurs temporaires pour iOS (la roue ne confirme pas avant d'appuyer sur "OK")
+  const [tempDate, setTempDate] = useState<Date>(new Date());
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showParticipantPicker, setShowParticipantPicker] = useState(false);
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -116,88 +123,91 @@ export default function EventFormScreen() {
     }
   }, [isAdminOrModerator]);
 
-  const handlePickFile = async () => {
-    try {
-      // Simuler la sélection d'un fichier
-      // Dans une vraie application, nous utiliserions expo-document-picker
-      setFileName('agenda_reunion.pdf');
-      Alert.alert('Fichier sélectionné', 'agenda_reunion.pdf a été sélectionné.');
-    } catch (error) {
-      console.error('Error picking document:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de la sélection du fichier.');
-    }
+  // Android : ferme dès la sélection. iOS : stocke dans tempDate, confirme sur "OK".
+  type PickerTarget = 'startDate' | 'startTime' | 'endDate' | 'endTime';
+  const [activePickerTarget, setActivePickerTarget] = useState<PickerTarget | null>(null);
+
+  const openPicker = (target: PickerTarget) => {
+    const initial =
+      target === 'startDate' || target === 'startTime' ? startDate : endDate;
+    setTempDate(new Date(initial));
+    setActivePickerTarget(target);
+    if (target === 'startDate') setShowStartDatePicker(true);
+    if (target === 'startTime') setShowStartTimePicker(true);
+    if (target === 'endDate') setShowEndDatePicker(true);
+    if (target === 'endTime') setShowEndTimePicker(true);
   };
 
-  const handleStartDateChange = (event: any, selectedDate?: Date) => {
-    setShowStartDatePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(selectedDate);
-      // Conserver l'heure actuelle
-      newDate.setHours(startDate.getHours(), startDate.getMinutes());
+  const applyPickerValue = (picked: Date) => {
+    if (activePickerTarget === 'startDate') {
+      const newDate = new Date(picked);
+      newDate.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
       setStartDate(newDate);
-      
-      // Si la date de fin est antérieure à la nouvelle date de début, ajuster la date de fin
       if (endDate < newDate) {
-        const newEndDate = new Date(newDate);
-        newEndDate.setHours(newDate.getHours() + 1);
-        setEndDate(newEndDate);
+        const newEnd = new Date(newDate);
+        newEnd.setHours(newDate.getHours() + 1);
+        setEndDate(newEnd);
       }
-    }
-  };
-
-  const handleStartTimeChange = (event: any, selectedTime?: Date) => {
-    setShowStartTimePicker(false);
-    if (selectedTime) {
+    } else if (activePickerTarget === 'startTime') {
       const newDate = new Date(startDate);
-      newDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
+      newDate.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
       setStartDate(newDate);
-      
-      // Si l'heure de fin est antérieure à la nouvelle heure de début, ajuster l'heure de fin
       if (endDate < newDate) {
-        const newEndDate = new Date(newDate);
-        newEndDate.setHours(newDate.getHours() + 1);
-        setEndDate(newEndDate);
+        const newEnd = new Date(newDate);
+        newEnd.setHours(newDate.getHours() + 1);
+        setEndDate(newEnd);
       }
-    }
-  };
-
-  const handleEndDateChange = (event: any, selectedDate?: Date) => {
-    setShowEndDatePicker(false);
-    if (selectedDate) {
-      const newDate = new Date(selectedDate);
-      // Conserver l'heure actuelle
-      newDate.setHours(endDate.getHours(), endDate.getMinutes());
-      
-      // Vérifier que la date de fin n'est pas antérieure à la date de début
+    } else if (activePickerTarget === 'endDate') {
+      const newDate = new Date(picked);
+      newDate.setHours(endDate.getHours(), endDate.getMinutes(), 0, 0);
       if (newDate < startDate) {
         Alert.alert('Erreur', 'La date de fin ne peut pas être antérieure à la date de début.');
-        return;
+        return false;
       }
-      
       setEndDate(newDate);
+    } else if (activePickerTarget === 'endTime') {
+      const newDate = new Date(endDate);
+      newDate.setHours(picked.getHours(), picked.getMinutes(), 0, 0);
+      if (
+        newDate.toDateString() === startDate.toDateString() &&
+        newDate < startDate
+      ) {
+        Alert.alert('Erreur', "L'heure de fin ne peut pas être antérieure à l'heure de début.");
+        return false;
+      }
+      setEndDate(newDate);
+    }
+    return true;
+  };
+
+  const closeAllPickers = () => {
+    setShowStartDatePicker(false);
+    setShowStartTimePicker(false);
+    setShowEndDatePicker(false);
+    setShowEndTimePicker(false);
+    setActivePickerTarget(null);
+  };
+
+  // Handlers unifiés
+  const handlePickerChange = (_event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      closeAllPickers();
+      if (selectedDate) applyPickerValue(selectedDate);
+    } else {
+      // iOS : on met à jour tempDate en temps réel mais on n'applique pas encore
+      if (selectedDate) setTempDate(selectedDate);
     }
   };
 
-  const handleEndTimeChange = (event: any, selectedTime?: Date) => {
-    setShowEndTimePicker(false);
-    if (selectedTime) {
-      const newDate = new Date(endDate);
-      newDate.setHours(selectedTime.getHours(), selectedTime.getMinutes());
-      
-      // Si la date de fin est la même que la date de début, vérifier que l'heure de fin n'est pas antérieure à l'heure de début
-      if (
-        newDate.getFullYear() === startDate.getFullYear() &&
-        newDate.getMonth() === startDate.getMonth() &&
-        newDate.getDate() === startDate.getDate() &&
-        newDate < startDate
-      ) {
-        Alert.alert('Erreur', 'L\'heure de fin ne peut pas être antérieure à l\'heure de début.');
-        return;
-      }
-      
-      setEndDate(newDate);
-    }
+  const handleIOSConfirm = () => {
+    applyPickerValue(tempDate);
+    closeAllPickers();
   };
+
+  const handleStartDateChange = handlePickerChange;
+  const handleStartTimeChange = handlePickerChange;
+  const handleEndDateChange = handlePickerChange;
+  const handleEndTimeChange = handlePickerChange;
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('fr-FR', {
@@ -226,6 +236,18 @@ export default function EventFormScreen() {
     setParticipants(participants.filter(id => id !== userId));
   };
 
+  const handleAddGroup = (memberIds: string[]) => {
+    // Fusionne sans doublon
+    const merged = Array.from(new Set([...participants, ...memberIds]));
+    setParticipants(merged);
+    setShowGroupPicker(false);
+  };
+
+  const handleAddAllUsers = () => {
+    setParticipants(users.map(u => u.id));
+    setShowGroupPicker(false);
+  };
+
   const handleSelectCategory = (id: string) => {
     setCategoryId(id);
     setShowCategoryPicker(false);
@@ -236,7 +258,7 @@ export default function EventFormScreen() {
     return category ? category.name : 'Sélectionner une catégorie';
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title) {
       Alert.alert('Champ obligatoire', 'Veuillez remplir le titre de l\'événement.');
       return;
@@ -250,52 +272,69 @@ export default function EventFormScreen() {
         description,
         startTime: startDate.toISOString(),
         endTime: endDate.toISOString(),
-        location,
-        url,
+        location: locationType === 'visio' ? '' : location,
+        locationType,
         color,
         isPinned,
-        fileUrl: fileName ? 'file://example/path/' + fileName : undefined,
         categoryId: categoryId || undefined,
       };
 
       if (existingEvent) {
-        // Mise à jour d'un événement existant
-        updateEvent(existingEvent.id, eventData);
-        
-        // Mettre à jour les participants
-        const currentParticipants = existingEvent.participants?.map(p => p.userId) || [];
-        
-        // Ajouter les nouveaux participants
-        participants.forEach(userId => {
-          if (!currentParticipants.includes(userId)) {
-            // Ajouter le participant avec statut "pending"
-            const event = getEventById(existingEvent.id);
-            if (event) {
-              const { addParticipant } = useCalendarStore.getState();
-              addParticipant(existingEvent.id, userId);
-            }
-          }
+        // Mise à jour d'un événement existant — on calcule la liste finale des
+        // participants en UN SEUL coup pour éviter la race condition qui faisait
+        // perdre les ajouts en masse (ex. "Par groupe" → 7 ajouts → 1 seul gardé).
+        const currentParticipantsList = existingEvent.participants ?? [];
+        const newParticipantIdsSet = new Set(participants);
+
+        // Conserver les participants existants qui sont encore sélectionnés
+        // OU le créateur (jamais retiré, même s'il n'est plus dans la liste)
+        const kept = currentParticipantsList.filter(
+          (p) => newParticipantIdsSet.has(p.userId) || p.userId === existingEvent.createdBy
+        );
+
+        // Détecter les nouveaux ajouts (présents dans `participants` mais pas dans l'event)
+        const existingIds = new Set(currentParticipantsList.map((p) => p.userId));
+        const additions = participants
+          .filter((id) => !existingIds.has(id))
+          .map((userId) => ({
+            userId,
+            status: 'pending' as const,
+          }));
+
+        const mergedParticipants = [...kept, ...additions];
+
+        // UN SEUL update DB avec event + participants
+        await updateEvent(existingEvent.id, {
+          ...eventData,
+          participants: mergedParticipants,
         });
-        
-        // Supprimer les participants retirés
-        currentParticipants.forEach(userId => {
-          if (!participants.includes(userId) && userId !== user?.id) {
-            // Ne pas supprimer le créateur de l'événement
-            const event = getEventById(existingEvent.id);
-            if (event && event.createdBy !== userId) {
-              const { removeParticipant } = useCalendarStore.getState();
-              removeParticipant(existingEvent.id, userId);
-            }
+
+        // Notifier les nouveaux participants (best-effort, non bloquant)
+        if (additions.length > 0) {
+          try {
+            const startDateStr = new Date(eventData.startTime).toLocaleDateString('fr-FR', {
+              weekday: 'long', day: 'numeric', month: 'long',
+            });
+            const { addNotification } = useNotificationsStore.getState();
+            addNotification({
+              title: '📅 Invitation à un événement',
+              message: `Vous avez été invité à "${eventData.title}" le ${startDateStr}.`,
+              targetRoles: [],
+              targetUserIds: additions.map((a) => a.userId),
+              eventId: existingEvent.id,
+            });
+          } catch (notifErr) {
+            console.warn('Erreur notif ajout participants (non-bloquant):', notifErr);
           }
-        });
-        
-        Alert.alert('Succès', 'Événement mis à jour avec succès.');
+        }
+
+        Alert.alert('Succès', `Événement mis à jour. ${additions.length > 0 ? `${additions.length} nouveau${additions.length > 1 ? 'x' : ''} participant${additions.length > 1 ? 's' : ''} invité${additions.length > 1 ? 's' : ''}.` : ''}`);
       } else {
         // Création d'un nouvel événement
-        addEvent(eventData, participants);
+        await addEvent(eventData, participants);
         Alert.alert('Succès', 'Événement créé avec succès.');
       }
-      
+
       router.back();
     } catch (error) {
       console.error('Error saving event:', error);
@@ -359,17 +398,17 @@ export default function EventFormScreen() {
             <View style={styles.dateTimeContainer}>
               <TouchableOpacity
                 style={[styles.dateButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setShowStartDatePicker(true)}
+                onPress={() => openPicker('startDate')}
               >
                 <Calendar size={20} color={theme.primary} style={styles.dateIcon} />
                 <Text style={[styles.dateText, { color: theme.text }]}>
                   {formatDate(startDate)}
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.timeButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setShowStartTimePicker(true)}
+                onPress={() => openPicker('startTime')}
               >
                 <Clock size={20} color={theme.primary} style={styles.dateIcon} />
                 <Text style={[styles.dateText, { color: theme.text }]}>
@@ -382,17 +421,17 @@ export default function EventFormScreen() {
             <View style={styles.dateTimeContainer}>
               <TouchableOpacity
                 style={[styles.dateButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setShowEndDatePicker(true)}
+                onPress={() => openPicker('endDate')}
               >
                 <Calendar size={20} color={theme.primary} style={styles.dateIcon} />
                 <Text style={[styles.dateText, { color: theme.text }]}>
                   {formatDate(endDate)}
                 </Text>
               </TouchableOpacity>
-              
+
               <TouchableOpacity
                 style={[styles.timeButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => setShowEndTimePicker(true)}
+                onPress={() => openPicker('endTime')}
               >
                 <Clock size={20} color={theme.primary} style={styles.dateIcon} />
                 <Text style={[styles.dateText, { color: theme.text }]}>
@@ -401,14 +440,47 @@ export default function EventFormScreen() {
               </TouchableOpacity>
             </View>
 
-            <Input
-              label="Lieu"
-              placeholder="Entrez le lieu de l'événement (optionnel)"
-              value={location}
-              onChangeText={setLocation}
-              containerStyle={styles.inputContainer}
-              leftIcon={<MapPin size={20} color={darkMode ? theme.text : '#333333'} />}
-            />
+            <Text style={[styles.label, { color: theme.text }]}>Lieu</Text>
+            <View style={styles.locationTypeContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.locationTypeButton,
+                  { backgroundColor: theme.card, borderColor: locationType === 'visio' ? theme.primary : theme.border },
+                  locationType === 'visio' && { borderWidth: 2 }
+                ]}
+                onPress={() => setLocationType('visio')}
+              >
+                <Video size={20} color={locationType === 'visio' ? theme.primary : theme.text} style={styles.dateIcon} />
+                <Text style={[styles.dateText, { color: locationType === 'visio' ? theme.primary : theme.text, fontWeight: locationType === 'visio' ? '600' : '400' }]}>
+                  Visioconférence
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.locationTypeButton,
+                  { backgroundColor: theme.card, borderColor: locationType === 'onsite' ? theme.primary : theme.border },
+                  locationType === 'onsite' && { borderWidth: 2 }
+                ]}
+                onPress={() => setLocationType('onsite')}
+              >
+                <MapPin size={20} color={locationType === 'onsite' ? theme.primary : theme.text} style={styles.dateIcon} />
+                <Text style={[styles.dateText, { color: locationType === 'onsite' ? theme.primary : theme.text, fontWeight: locationType === 'onsite' ? '600' : '400' }]}>
+                  Présentiel
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {locationType === 'onsite' && (
+              <Input
+                label="Adresse"
+                placeholder="Ex : 12 rue de la Paix, 75002 Paris"
+                value={location}
+                onChangeText={setLocation}
+                containerStyle={styles.inputContainer}
+                leftIcon={<MapPin size={20} color={darkMode ? theme.text : '#333333'} />}
+              />
+            )}
 
             <Text style={[styles.label, { color: theme.text }]}>Catégorie</Text>
             <TouchableOpacity
@@ -454,27 +526,27 @@ export default function EventFormScreen() {
                 </Text>
               )}
               
-              <TouchableOpacity
-                style={[styles.addParticipantButton, { borderColor: theme.border }]}
-                onPress={() => setShowParticipantPicker(true)}
-              >
-                <UserPlus size={20} color={theme.primary} />
-                <Text style={[styles.addParticipantText, { color: theme.primary }]}>
-                  Ajouter des participants
-                </Text>
-              </TouchableOpacity>
+              <View style={styles.participantActionsRow}>
+                <TouchableOpacity
+                  style={[styles.addParticipantButton, { borderColor: theme.border, flex: 1 }]}
+                  onPress={() => setShowParticipantPicker(true)}
+                >
+                  <UserPlus size={18} color={theme.primary} />
+                  <Text style={[styles.addParticipantText, { color: theme.primary }]}>
+                    Un par un
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.addParticipantButton, { borderColor: theme.border, flex: 1 }]}
+                  onPress={() => setShowGroupPicker(true)}
+                >
+                  <Users size={18} color={theme.primary} />
+                  <Text style={[styles.addParticipantText, { color: theme.primary }]}>
+                    Par groupe
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-
-            <Input
-              label="URL"
-              placeholder="Entrez un lien externe (optionnel)"
-              value={url}
-              onChangeText={setUrl}
-              containerStyle={styles.inputContainer}
-              keyboardType="url"
-              autoCapitalize="none"
-              leftIcon={<Link size={20} color={darkMode ? theme.text : '#333333'} />}
-            />
 
             <Text style={[styles.label, { color: theme.text }]}>Couleur de l'événement</Text>
             <TouchableOpacity
@@ -505,30 +577,6 @@ export default function EventFormScreen() {
                 ))}
               </View>
             )}
-
-            <View style={styles.fileContainer}>
-              <Text style={[styles.label, { color: theme.text }]}>Fichier attaché</Text>
-              <TouchableOpacity
-                style={[styles.fileButton, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={handlePickFile}
-              >
-                {fileName ? (
-                  <View style={styles.fileInfo}>
-                    <FileText size={20} color={theme.primary} style={styles.fileIcon} />
-                    <Text style={[styles.fileName, { color: theme.text }]}>
-                      {fileName}
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.fileInfo}>
-                    <Upload size={20} color={theme.primary} style={styles.fileIcon} />
-                    <Text style={[styles.fileButtonText, { color: theme.text }]}>
-                      Ajouter un fichier
-                    </Text>
-                  </View>
-                )}
-              </TouchableOpacity>
-            </View>
 
             <View style={styles.switchContainer}>
               <View style={styles.switchTextContainer}>
@@ -571,38 +619,52 @@ export default function EventFormScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Date & Time Pickers */}
-      {showStartDatePicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="date"
-          display="default"
-          onChange={handleStartDateChange}
-        />
+      {/* Date & Time Pickers — Android : dialog native standard */}
+      {Platform.OS === 'android' && showStartDatePicker && (
+        <DateTimePicker value={startDate} mode="date" display="default" onChange={handleStartDateChange} />
       )}
-      {showStartTimePicker && (
-        <DateTimePicker
-          value={startDate}
-          mode="time"
-          display="default"
-          onChange={handleStartTimeChange}
-        />
+      {Platform.OS === 'android' && showStartTimePicker && (
+        <DateTimePicker value={startDate} mode="time" display="default" onChange={handleStartTimeChange} />
       )}
-      {showEndDatePicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="date"
-          display="default"
-          onChange={handleEndDateChange}
-        />
+      {Platform.OS === 'android' && showEndDatePicker && (
+        <DateTimePicker value={endDate} mode="date" display="default" onChange={handleEndDateChange} />
       )}
-      {showEndTimePicker && (
-        <DateTimePicker
-          value={endDate}
-          mode="time"
-          display="default"
-          onChange={handleEndTimeChange}
-        />
+      {Platform.OS === 'android' && showEndTimePicker && (
+        <DateTimePicker value={endDate} mode="time" display="default" onChange={handleEndTimeChange} />
+      )}
+
+      {/* iOS : Modal avec spinner + bouton Confirmer */}
+      {Platform.OS === 'ios' && (
+        <Modal
+          visible={showStartDatePicker || showStartTimePicker || showEndDatePicker || showEndTimePicker}
+          transparent
+          animationType="slide"
+          onRequestClose={closeAllPickers}
+        >
+          <TouchableOpacity style={styles.iosPickerOverlay} activeOpacity={1} onPress={closeAllPickers} />
+          <View style={[styles.iosPickerContainer, { backgroundColor: theme.card }]}>
+            <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border }]}>
+              <TouchableOpacity onPress={closeAllPickers} style={styles.iosPickerBtn}>
+                <Text style={[styles.iosPickerBtnText, { color: theme.inactive }]}>Annuler</Text>
+              </TouchableOpacity>
+              <Text style={[styles.iosPickerTitle, { color: theme.text }]}>
+                {showStartDatePicker || showEndDatePicker ? 'Choisir une date' : 'Choisir une heure'}
+              </Text>
+              <TouchableOpacity onPress={handleIOSConfirm} style={styles.iosPickerBtn}>
+                <Text style={[styles.iosPickerBtnText, { color: theme.primary, fontWeight: '700' }]}>OK</Text>
+              </TouchableOpacity>
+            </View>
+            <DateTimePicker
+              value={tempDate}
+              mode={showStartDatePicker || showEndDatePicker ? 'date' : 'time'}
+              display="spinner"
+              onChange={handlePickerChange}
+              locale="fr-FR"
+              style={styles.iosPickerSpinner}
+              textColor={theme.text}
+            />
+          </View>
+        </Modal>
       )}
 
       {/* Category Picker Modal */}
@@ -641,6 +703,75 @@ export default function EventFormScreen() {
             <TouchableOpacity
               style={[styles.modalCancelButton, { borderTopColor: theme.border }]}
               onPress={() => setShowCategoryPicker(false)}
+            >
+              <Text style={[styles.modalCancelText, { color: theme.primary }]}>
+                Annuler
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Group Picker Modal */}
+      {showGroupPicker && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { backgroundColor: theme.card }]}>
+            <Text style={[styles.modalTitle, { color: theme.text }]}>
+              Inviter un groupe
+            </Text>
+
+            <ScrollView style={styles.modalScrollView}>
+              <TouchableOpacity
+                style={[styles.modalItem, { borderBottomColor: theme.border }]}
+                onPress={handleAddAllUsers}
+              >
+                <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                  <View style={[styles.groupIconCircle, { backgroundColor: theme.primary }]}>
+                    <Text style={{ fontSize: 18 }}>🌍</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.modalItemText, { color: theme.text }]}>
+                      Toute l'association
+                    </Text>
+                    <Text style={[styles.groupSubtext, { color: darkMode ? theme.inactive : '#666' }]}>
+                      {users.length} membre{users.length > 1 ? 's' : ''}
+                    </Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+
+              {groups.length === 0 ? (
+                <Text style={[styles.groupSubtext, { color: darkMode ? theme.inactive : '#666', padding: 16, textAlign: 'center' }]}>
+                  Aucun groupe défini. Créez-en via le panneau d'administration.
+                </Text>
+              ) : (
+                groups.map((g) => (
+                  <TouchableOpacity
+                    key={g.id}
+                    style={[styles.modalItem, { borderBottomColor: theme.border }]}
+                    onPress={() => handleAddGroup(g.memberIds)}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={[styles.groupIconCircle, { backgroundColor: g.color || theme.primary }]}>
+                        <Text style={{ fontSize: 18 }}>{g.icon || '👥'}</Text>
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.modalItemText, { color: theme.text }]}>
+                          {g.name}
+                        </Text>
+                        <Text style={[styles.groupSubtext, { color: darkMode ? theme.inactive : '#666' }]}>
+                          {g.memberIds.length} membre{g.memberIds.length > 1 ? 's' : ''}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={[styles.modalCancelButton, { borderTopColor: theme.border }]}
+              onPress={() => setShowGroupPicker(false)}
             >
               <Text style={[styles.modalCancelText, { color: theme.primary }]}>
                 Annuler
@@ -767,6 +898,20 @@ const styles = StyleSheet.create({
   dateText: {
     fontSize: 14,
   },
+  locationTypeContainer: {
+    flexDirection: 'row',
+    marginBottom: 16,
+    gap: 8,
+  },
+  locationTypeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
   pickerButton: {
     padding: 12,
     borderRadius: 8,
@@ -816,6 +961,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderStyle: 'dashed',
   },
+  participantActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  groupIconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  groupSubtext: {
+    fontSize: 12,
+    marginTop: 2,
+  },
   addParticipantText: {
     fontSize: 14,
     marginLeft: 8,
@@ -852,27 +1013,6 @@ const styles = StyleSheet.create({
   selectedColorOption: {
     borderWidth: 2,
     borderColor: '#000',
-  },
-  fileContainer: {
-    marginBottom: 16,
-  },
-  fileButton: {
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  fileInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  fileIcon: {
-    marginRight: 12,
-  },
-  fileName: {
-    fontSize: 14,
-  },
-  fileButtonText: {
-    fontSize: 14,
   },
   switchContainer: {
     flexDirection: 'row',
@@ -982,5 +1122,36 @@ const styles = StyleSheet.create({
     padding: 16,
     textAlign: 'center',
     fontStyle: 'italic',
+  },
+  iosPickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  iosPickerContainer: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 34, // safe area bottom
+  },
+  iosPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  iosPickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  iosPickerBtn: {
+    padding: 4,
+    minWidth: 60,
+  },
+  iosPickerBtnText: {
+    fontSize: 16,
+  },
+  iosPickerSpinner: {
+    height: 200,
   },
 });

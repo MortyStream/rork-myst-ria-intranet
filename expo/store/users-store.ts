@@ -44,22 +44,27 @@ const getFriendlyUsersErrorMessage = (error: unknown): string => {
   return `Impossible de charger les utilisateurs. ${message}`;
 };
 
-const mapSupabaseUserToUser = (user: Record<string, unknown>): User => ({
-  id: String(user.id ?? ''),
-  supabaseUserId: typeof user.supabaseUserId === 'string' ? user.supabaseUserId : undefined,
-  firstName: typeof user.firstName === 'string' ? user.firstName : '',
-  lastName: typeof user.lastName === 'string' ? user.lastName : '',
-  email: typeof user.email === 'string' ? user.email : '',
-  phone: typeof user.phone === 'string' ? user.phone : '',
-  role: typeof user.role === 'string' ? (user.role as User['role']) : 'user',
-  avatarUrl: typeof user.avatarUrl === 'string' ? user.avatarUrl : undefined,
-  bio: typeof user.bio === 'string' ? user.bio : undefined,
-  sectors: Array.isArray(user.sectors) ? (user.sectors as User['sectors']) : [],
-  editable: user.editable !== false,
-  editable_by: typeof user.editable_by === 'string' ? user.editable_by : undefined,
-  createdAt: typeof user.createdAt === 'string' ? user.createdAt : new Date().toISOString(),
-  updatedAt: typeof user.updatedAt === 'string' ? user.updatedAt : new Date().toISOString(),
-});
+const mapSupabaseUserToUser = (user: Record<string, unknown>): User => {
+  const avatarUrl = typeof user.avatarUrl === 'string' ? user.avatarUrl : undefined;
+  return {
+    id: String(user.id ?? ''),
+    supabaseUserId: typeof user.supabaseUserId === 'string' ? user.supabaseUserId : undefined,
+    firstName: typeof user.firstName === 'string' ? user.firstName : '',
+    lastName: typeof user.lastName === 'string' ? user.lastName : '',
+    email: typeof user.email === 'string' ? user.email : '',
+    phone: typeof user.phone === 'string' ? user.phone : '',
+    role: typeof user.role === 'string' ? (user.role as User['role']) : 'user',
+    avatarUrl,
+    profileImage: avatarUrl, // alias pour la cohérence avec auth-store
+    bio: typeof user.bio === 'string' ? user.bio : undefined,
+    sectors: Array.isArray(user.sectors) ? (user.sectors as User['sectors']) : [],
+    editable: user.editable !== false,
+    editable_by: typeof user.editable_by === 'string' ? user.editable_by : undefined,
+    permissions: Array.isArray(user.permissions) ? (user.permissions as string[]) : [],
+    createdAt: typeof user.createdAt === 'string' ? user.createdAt : new Date().toISOString(),
+    updatedAt: typeof user.updatedAt === 'string' ? user.updatedAt : new Date().toISOString(),
+  };
+};
 
 const fetchUsersFromSupabase = async (): Promise<User[]> => {
   const supabase = getSupabase();
@@ -78,6 +83,8 @@ interface UsersState {
   error: string | null;
   addUser: (userData: Omit<User, 'id' | 'createdAt' | 'updatedAt' | 'editable'>) => Promise<string>;
   updateUser: (id: string, userData: Partial<User>) => void;
+  updateUserRole: (id: string, role: User['role']) => Promise<void>;
+  toggleUserEditable: (id: string, editable: boolean) => Promise<boolean>;
   deleteUser: (id: string) => void;
   getUserById: (id: string) => User | undefined;
   getUsersByRole: (role: string) => User[];
@@ -195,6 +202,41 @@ export const useUsersStore = create<UsersState>()(
               : user
           )
         }));
+      },
+
+      updateUserRole: async (id, role) => {
+        const supabase = getSupabase();
+        const { error } = await supabase
+          .from('users')
+          .update({ role, updatedAt: new Date().toISOString() })
+          .eq('id', id);
+        if (error) throw new Error(error.message);
+        set(state => ({
+          users: state.users.map(user =>
+            user.id === id
+              ? { ...user, role, updatedAt: new Date().toISOString() }
+              : user
+          )
+        }));
+      },
+
+      toggleUserEditable: async (id, editable) => {
+        try {
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('users')
+            .update({ editable, updatedAt: new Date().toISOString() })
+            .eq('id', id);
+          if (error) throw new Error(error.message);
+          set(state => ({
+            users: state.users.map(user =>
+              user.id === id ? { ...user, editable } : user
+            )
+          }));
+          return true;
+        } catch {
+          return false;
+        }
       },
 
       deleteUser: (id) => {

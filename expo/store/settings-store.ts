@@ -6,7 +6,10 @@ interface SettingsState {
   darkMode: boolean;
   persistLogin: boolean;
   language: 'fr' | 'en';
-  
+
+  // True une fois que l'utilisateur a passé l'onboarding du premier launch.
+  hasSeenOnboarding: boolean;
+
   // App appearance customization
   appName: string;
   primaryColor: string;
@@ -14,7 +17,7 @@ interface SettingsState {
   logoType: 'text' | 'image';
   logoText: string;
   logoImageUrl: string;
-  
+
   // Supabase configuration
   supabaseUrl: string;
   supabaseKey: string;
@@ -26,6 +29,7 @@ interface SettingsStore extends SettingsState {
   togglePersistLogin: () => void;
   setPersistLogin: (enabled: boolean) => void;
   setLanguage: (language: 'fr' | 'en') => void;
+  markOnboardingSeen: () => void;
   
   // App appearance actions
   setAppName: (name: string) => void;
@@ -45,7 +49,10 @@ interface SettingsStore extends SettingsState {
 // Default appearance settings
 const DEFAULT_APP_NAME = "Mystéria Event";
 const DEFAULT_PRIMARY_COLOR = "#c22e0f";
-const DEFAULT_WELCOME_MESSAGE = "Bienvenue sur l'intranet Mystéria Event";
+// Vide par défaut : le home masque la carte tant qu'un admin n'a pas écrit une vraie annonce.
+const DEFAULT_WELCOME_MESSAGE = "";
+// Message historique à considérer comme vide (migration douce pour les installations existantes).
+export const LEGACY_WELCOME_MESSAGE = "Bienvenue sur l'intranet Mystéria Event";
 const DEFAULT_LOGO_TYPE = "text";
 const DEFAULT_LOGO_TEXT = "M";
 const DEFAULT_LOGO_IMAGE_URL = "";
@@ -57,9 +64,10 @@ const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 export const useSettingsStore = create<SettingsStore>()(
   persist(
     (set) => ({
-      darkMode: false,
+      darkMode: true,
       persistLogin: true,
       language: 'fr',
+      hasSeenOnboarding: false,
       
       // Default appearance settings
       appName: DEFAULT_APP_NAME,
@@ -91,6 +99,10 @@ export const useSettingsStore = create<SettingsStore>()(
       
       setLanguage: (language) => {
         set({ language });
+      },
+
+      markOnboardingSeen: () => {
+        set({ hasSeenOnboarding: true });
       },
       
       // App appearance actions

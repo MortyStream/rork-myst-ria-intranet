@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   StyleSheet, 
   View, 
@@ -10,10 +10,11 @@ import {
   Switch,
   Platform,
   Animated,
+  Linking,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, CheckCheck, BellOff, Edit, Trash, ChevronDown, ChevronUp } from 'lucide-react-native';
+import { Bell, CheckCheck, BellOff, Edit, Trash, ChevronDown, ChevronUp, Settings } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -26,26 +27,31 @@ import { Divider } from '@/components/Divider';
 import { Notification } from '@/types/notification';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
-import { Badge } from '@/components/Badge';
 
 export default function NotificationsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
-  const { 
-    getUserNotifications, 
-    markAsRead, 
-    markAllAsRead, 
-    toggleMessaging, 
+  const {
+    getUserNotifications,
+    markAsRead,
+    markAllAsRead,
+    toggleMessaging,
     isMessagingEnabled,
     deleteNotification,
-    getUnreadCount 
+    getUnreadCount,
+    initializeNotifications,
   } = useNotificationsStore();
   const { darkMode } = useSettingsStore();
-  const { categories, isUserSubscribed, subscribeToCategory, unsubscribeFromCategory } = useResourcesStore();
+  const { categories, isUserSubscribed, subscribeToCategory, unsubscribeFromCategory, initializeDefaultCategories } = useResourcesStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   
   const [refreshing, setRefreshing] = useState(false);
   const [showCategorySettings, setShowCategorySettings] = useState(false);
+
+  useEffect(() => {
+    initializeNotifications();
+    initializeDefaultCategories();
+  }, []);
   const [selectedNotification, setSelectedNotification] = useState<string | null>(null);
   const [showNotificationOptions, setShowNotificationOptions] = useState(false);
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | null>(null);
@@ -56,15 +62,32 @@ export default function NotificationsScreen() {
   const hasUnread = unreadCount > 0;
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
-  const onRefresh = React.useCallback(() => {
+  const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    await initializeNotifications();
+    setRefreshing(false);
   }, []);
   
   const handleNotificationPress = (id: string) => {
     markAsRead(id);
+    const notif = getUserNotifications().find(n => n.id === id);
+    if (!notif) return;
+
+    // Deep link : on redirige vers la ressource concernée si possible.
+    // Priorité : eventId > taskId > resourceItemId > categoryId.
+    if (notif.eventId) {
+      router.push({ pathname: '/calendar/event-detail', params: { id: notif.eventId } });
+      return;
+    }
+    if (notif.taskId) {
+      router.push({ pathname: '/tasks', params: { highlightId: notif.taskId } });
+      return;
+    }
+    if (notif.categoryId) {
+      // La page de la catégorie affiche aussi les resource items
+      router.push({ pathname: '/resources/[id]', params: { id: notif.categoryId } });
+      return;
+    }
   };
   
   const handleNotificationLongPress = (id: string) => {
@@ -83,13 +106,15 @@ export default function NotificationsScreen() {
   
   const handleDeleteNotification = () => {
     if (selectedNotification) {
+      const notif = getUserNotifications().find(n => n.id === selectedNotification);
+      const notifLabel = notif?.title ? `« ${notif.title} »` : 'cette notification';
       Alert.alert(
-        'Confirmer la suppression',
-        'Êtes-vous sûr de vouloir supprimer cette notification ?',
+        'Supprimer la notification ?',
+        `${notifLabel} sera retirée de votre liste.`,
         [
           { text: 'Annuler', style: 'cancel' },
-          { 
-            text: 'Supprimer', 
+          {
+            text: 'Supprimer',
             style: 'destructive',
             onPress: () => {
               deleteNotification(selectedNotification);
@@ -109,12 +134,10 @@ export default function NotificationsScreen() {
   const handleToggleMessaging = () => {
     const newState = !isMessagingEnabled;
     toggleMessaging(newState);
-    
-    if (newState) {
-      Alert.alert('Notifications activées', 'Vous recevrez désormais des notifications.');
-    } else {
-      Alert.alert('Notifications désactivées', 'Vous ne recevrez plus de notifications.');
-    }
+  };
+
+  const handleOpenSystemSettings = () => {
+    Linking.openSettings();
   };
   
   const handleToggleCategorySettings = () => {
@@ -184,49 +207,45 @@ export default function NotificationsScreen() {
   );
 
   const renderHeader = () => (
-    <>
-      <View style={styles.statusContainer}>
-        <TouchableOpacity 
-          style={[styles.statusButton, { backgroundColor: theme.card }]}
-          onPress={handleToggleMessaging}
-        >
-          <View style={styles.statusContent}>
-            {isMessagingEnabled ? (
-              <Bell size={20} color={theme.primary} />
-            ) : (
-              <BellOff size={20} color={theme.inactive} />
-            )}
-            <Text style={[styles.statusText, { color: theme.text }]}>
-              {isMessagingEnabled ? 'Notifications activées' : 'Notifications désactivées'}
+    <View style={[styles.controlsRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {/* Bell toggle */}
+      <TouchableOpacity style={styles.controlButton} onPress={handleToggleMessaging}>
+        {isMessagingEnabled ? (
+          <Bell size={18} color={theme.primary} />
+        ) : (
+          <BellOff size={18} color={theme.inactive} />
+        )}
+        {hasUnread && (
+          <View style={[styles.unreadDot, { backgroundColor: theme.primary }]}>
+            <Text style={styles.unreadDotText}>
+              {unreadCount > 9 ? '9+' : unreadCount}
             </Text>
           </View>
-          {hasUnread && (
-            <Badge
-              label={unreadCount.toString()}
-              variant="primary"
-              size="small"
-              style={styles.badge}
-            />
-          )}
-        </TouchableOpacity>
-      </View>
+        )}
+      </TouchableOpacity>
 
-      <TouchableOpacity 
-        style={[styles.settingsButton, { backgroundColor: theme.card }]}
+      <View style={[styles.controlDivider, { backgroundColor: theme.border }]} />
+
+      {/* System settings */}
+      <TouchableOpacity style={styles.controlButton} onPress={handleOpenSystemSettings}>
+        <Settings size={18} color={theme.text} style={{ opacity: 0.5 }} />
+      </TouchableOpacity>
+
+      <View style={[styles.controlDivider, { backgroundColor: theme.border }]} />
+
+      {/* Subscriptions toggle */}
+      <TouchableOpacity
+        style={[styles.controlButton, styles.controlButtonWide]}
         onPress={handleToggleCategorySettings}
       >
-        <View style={styles.settingsButtonContent}>
-          <Text style={[styles.settingsButtonText, { color: theme.text }]}>
-            {showCategorySettings ? "Masquer les paramètres" : "Gérer les abonnements"}
-          </Text>
-          {showCategorySettings ? (
-            <ChevronUp size={20} color={theme.text} />
-          ) : (
-            <ChevronDown size={20} color={theme.text} />
-          )}
-        </View>
+        <Text style={[styles.controlText, { color: theme.text }]}>Abonnements</Text>
+        {showCategorySettings ? (
+          <ChevronUp size={15} color={theme.text} style={{ opacity: 0.5 }} />
+        ) : (
+          <ChevronDown size={15} color={theme.text} style={{ opacity: 0.5 }} />
+        )}
       </TouchableOpacity>
-    </>
+    </View>
   );
   
   return (
@@ -236,7 +255,7 @@ export default function NotificationsScreen() {
     >
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header
-          title="Notifications"
+          title="Notifications 🔔"
           onTitlePress={() => toggleSidebar && toggleSidebar()}
           rightComponent={
             hasUnread && (
@@ -258,6 +277,14 @@ export default function NotificationsScreen() {
             contentContainerStyle={styles.categoryListContent}
             ItemSeparatorComponent={() => <Divider style={{ marginVertical: 0 }} />}
             ListHeaderComponent={renderHeader()}
+            ListEmptyComponent={
+              <EmptyState
+                title="Aucune catégorie"
+                message="Les catégories de La Bible apparaîtront ici pour vous abonner aux mises à jour."
+                icon={<Bell size={48} color={theme.inactive} />}
+                style={styles.emptyState}
+              />
+            }
           />
         ) : (
           <FlatList
@@ -329,66 +356,65 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  statusContainer: {
-    paddingHorizontal: 16,
-    paddingTop: 8,
-    paddingBottom: 16,
-  },
-  statusButton: {
+  controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    borderRadius: 12,
-    ...Platform.select({
-      ios: {
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 2,
-      },
-    }),
-  },
-  statusContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-  },
-  statusText: {
-    fontSize: 15,
-    fontWeight: '500',
-  },
-  badge: {
-    marginLeft: 8,
-  },
-  settingsButton: {
     marginHorizontal: 16,
-    marginBottom: 16,
-    padding: 14,
+    marginTop: 8,
+    marginBottom: 12,
     borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    height: 44,
     ...Platform.select({
       ios: {
         shadowColor: '#000',
         shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.15,
-        shadowRadius: 3,
+        shadowOpacity: 0.08,
+        shadowRadius: 2,
       },
       android: {
-        elevation: 2,
+        elevation: 1,
       },
     }),
   },
-  settingsButtonContent: {
-    flexDirection: 'row',
+  controlButton: {
+    paddingHorizontal: 16,
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    height: '100%',
+    position: 'relative',
   },
-  settingsButtonText: {
-    fontSize: 15,
+  controlButtonWide: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 14,
+  },
+  controlDivider: {
+    width: 1,
+    height: '50%',
+  },
+  controlText: {
+    fontSize: 13,
     fontWeight: '500',
+    opacity: 0.75,
+  },
+  unreadDot: {
+    position: 'absolute',
+    top: 5,
+    right: 5,
+    borderRadius: 8,
+    minWidth: 15,
+    height: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  unreadDotText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
   },
   listContent: {
     paddingBottom: 20,

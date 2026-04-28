@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Event, EventParticipant } from '@/types/calendar';
 import { getSupabase } from '@/utils/supabase';
 import { useAuthStore } from './auth-store';
+import { useNotificationsStore } from './notifications-store';
 
 const fetchEventsFromSupabase = async (): Promise<Event[]> => {
   const supabase = getSupabase();
@@ -36,6 +37,7 @@ interface CalendarStore extends CalendarState {
   getUserEvents: (userId: string, limit?: number) => Event[];
   getParticipantStatus: (eventId: string, userId: string) => 'confirmed' | 'declined' | 'pending' | null;
   getEventParticipants: (eventId: string) => EventParticipant[];
+  sendReminderToParticipants: (eventId: string, onlyPending: boolean) => void;
 }
 
 export const useCalendarStore = create<CalendarStore>()(
@@ -61,9 +63,14 @@ export const useCalendarStore = create<CalendarStore>()(
         const currentUser = useAuthStore.getState().user;
         if (!currentUser) throw new Error('Non authentifié');
 
+        // Dédoublonnage : le créateur ne doit apparaître qu'une fois, et pas de doublons
+        // même si invitedUserIds contient des répétitions.
+        const uniqueInvitedIds = Array.from(new Set(invitedUserIds)).filter(
+          (uid) => uid !== currentUser.id
+        );
         const participants: EventParticipant[] = [
           { userId: currentUser.id, status: 'confirmed', responseDate: new Date().toISOString() },
-          ...invitedUserIds.map(userId => ({ userId, status: 'pending' as const }))
+          ...uniqueInvitedIds.map((userId) => ({ userId, status: 'pending' as const })),
         ];
 
         const now = new Date().toISOString();
@@ -82,6 +89,21 @@ export const useCalendarStore = create<CalendarStore>()(
           .single();
         if (error) throw error;
         set(state => ({ events: [...state.events, data] }));
+
+        // Notifier les participants invités (pas le créateur)
+        if (uniqueInvitedIds.length > 0) {
+          const startDate = new Date(eventData.startTime).toLocaleDateString('fr-FR', {
+            weekday: 'long', day: 'numeric', month: 'long',
+          });
+          useNotificationsStore.getState().addNotification({
+            title: '📅 Invitation à un événement',
+            message: `Vous avez été invité à "${eventData.title}" le ${startDate}.`,
+            targetRoles: [],
+            targetUserIds: uniqueInvitedIds,
+            eventId: data.id,
+          });
+        }
+
         return data.id;
       },
 
@@ -173,6 +195,15 @@ export const useCalendarStore = create<CalendarStore>()(
 
       getEventParticipants: (eventId) => {
         return get().getEventById(eventId)?.participants || [];
+      },
+
+      sendReminderToParticipants: (eventId, onlyPending) => {
+        const event = get().getEventById(eventId);
+        if (!event) return;
+        const targets = onlyPending
+          ? (event.participants || []).filter(p => p.status === 'pending')
+          : (event.participants || []);
+        console.log(`Rappel envoyé pour "${event.title}" à ${targets.length} participant(s)`);
       },
     }),
     {

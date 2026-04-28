@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -39,10 +39,10 @@ export default function AdminLinksScreen() {
   // Vérifier si l'utilisateur est admin ou modérateur
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
-  if (!isAdminOrModerator) {
-    router.replace('/admin');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAdminOrModerator) router.replace('/admin');
+  }, [isAdminOrModerator]);
+  if (!isAdminOrModerator) return null;
   
   const handleAddLink = () => {
     router.push('/admin/link-form');
@@ -57,19 +57,15 @@ export default function AdminLinksScreen() {
   
   const handleDeleteLink = (link: ExternalLinkType) => {
     Alert.alert(
-      'Confirmer la suppression',
-      `Êtes-vous sûr de vouloir supprimer le lien "${link.title}" ?`,
+      'Supprimer le lien ?',
+      `« ${link.title} » sera retiré définitivement de la liste.`,
       [
-        {
-          text: 'Annuler',
-          style: 'cancel',
-        },
+        { text: 'Annuler', style: 'cancel' },
         {
           text: 'Supprimer',
           style: 'destructive',
           onPress: () => {
             deleteExternalLink(link.id);
-            Alert.alert('Succès', 'Lien supprimé avec succès.');
           },
         },
       ]
@@ -77,11 +73,9 @@ export default function AdminLinksScreen() {
   };
   
   const handleOpenLink = async (url: string) => {
+    // Pas de canOpenURL : échoue sur Android 11+ sans permission QUERY_ALL_PACKAGES.
     try {
-      const canOpen = await Linking.canOpenURL(url);
-      if (canOpen) {
-        await Linking.openURL(url);
-      }
+      await Linking.openURL(url);
     } catch (error) {
       console.error('Error opening URL:', error);
     }

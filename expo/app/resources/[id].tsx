@@ -6,6 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   Alert,
+  Linking,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter, useLocalSearchParams, Stack } from 'expo-router';
@@ -31,6 +32,7 @@ import { ResourceItem, ResourceItemType } from '@/types/resource';
 import { EmptyState } from '@/components/EmptyState';
 import { Card } from '@/components/Card';
 import { AppLayout } from '@/components/AppLayout';
+import { Header } from '@/components/Header';
 
 export default function ResourceCategoryScreen() {
   const router = useRouter();
@@ -43,6 +45,7 @@ export default function ResourceCategoryScreen() {
     getResourceItemsByCategory,
     isUserCategoryResponsible,
     deleteResourceItem,
+    resourceItems: allResourceItems,
   } = useResourcesStore();
 
   const [category, setCategory] = useState(getCategoryById(id));
@@ -115,20 +118,61 @@ export default function ResourceCategoryScreen() {
   };
 
   const handleDeleteItem = (item: ResourceItem) => {
+    // Compte récursif des descendants si c'est un dossier
+    const countDescendants = (parentId: string): number => {
+      const direct = allResourceItems.filter(it => it.parentId === parentId);
+      let total = direct.length;
+      for (const child of direct) {
+        total += countDescendants(child.id);
+      }
+      return total;
+    };
+
+    const childCount = item.type === 'folder' ? countDescendants(item.id) : 0;
+    const isHeavy = childCount > 0;
+
+    const typeLabel: Record<string, string> = {
+      folder: 'dossier',
+      file: 'fichier',
+      link: 'lien',
+      image: 'image',
+      text: 'texte',
+    };
+    const labelText = typeLabel[item.type] ?? 'élément';
+
+    const detail = isHeavy
+      ? `« ${item.title} » contient ${childCount} élément${childCount > 1 ? 's' : ''}.\n\nTout sera supprimé définitivement.`
+      : `« ${item.title} » sera supprimé${item.type === 'image' ? 'e' : ''}.`;
+
     Alert.alert(
-      'Confirmer la suppression',
-      `Êtes-vous sûr de vouloir supprimer "${item.title}" ${item.type === 'folder' ? 'et tout son contenu' : ''} ?`,
+      `Supprimer le ${labelText} ?`,
+      detail,
       [
+        { text: 'Annuler', style: 'cancel' },
         {
-          text: 'Annuler',
-          style: 'cancel',
-        },
-        {
-          text: 'Supprimer',
+          text: isHeavy ? `Tout supprimer (${childCount + 1})` : 'Supprimer',
           style: 'destructive',
           onPress: () => {
-            deleteResourceItem(item.id);
-            loadResourceItems();
+            if (isHeavy) {
+              Alert.alert(
+                'Vraiment ?',
+                `Confirmez la suppression de « ${item.title} » et de ses ${childCount} élément${childCount > 1 ? 's' : ''}.`,
+                [
+                  { text: 'Non, annuler', style: 'cancel' },
+                  {
+                    text: 'Oui, tout supprimer',
+                    style: 'destructive',
+                    onPress: async () => {
+                      await deleteResourceItem(item.id);
+                      loadResourceItems();
+                    },
+                  },
+                ]
+              );
+            } else {
+              deleteResourceItem(item.id);
+              loadResourceItems();
+            }
           },
         },
       ]
@@ -142,21 +186,52 @@ export default function ResourceCategoryScreen() {
         break;
       case 'link':
         if (item.url) {
-          // In a real app, you would use Linking.openURL
-          Alert.alert('Ouvrir le lien', `Vous allez être redirigé vers: ${item.url}`);
+          Alert.alert(
+            'Ouvrir le lien',
+            `Vous allez être redirigé vers: ${item.url}`,
+            [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'OK',
+                onPress: () => Linking.openURL(item.url!).catch(() =>
+                  Alert.alert('Erreur', "Impossible d'ouvrir ce lien.")
+                ),
+              },
+            ]
+          );
         }
         break;
       case 'file':
-        // In a real app, you would open the file
-        Alert.alert('Ouvrir le fichier', `Vous allez ouvrir: ${item.title}`);
+        if (item.fileUrl) {
+          Alert.alert(
+            'Ouvrir le fichier',
+            `« ${item.title} » va s'ouvrir dans votre navigateur.`,
+            [
+              { text: 'Annuler', style: 'cancel' },
+              {
+                text: 'OK',
+                onPress: () => Linking.openURL(item.fileUrl!).catch(() =>
+                  Alert.alert('Erreur', "Impossible d'ouvrir ce fichier.")
+                ),
+              },
+            ]
+          );
+        } else {
+          Alert.alert('Fichier indisponible', "Aucun fichier n'est attaché à cet élément.");
+        }
         break;
       case 'image':
-        // In a real app, you would show the image in full screen
-        Alert.alert('Voir l\'image', `Vous allez voir: ${item.title}`);
+        if (item.content) {
+          // L'URL publique Supabase ouvre l'image plein écran dans le navigateur
+          Linking.openURL(item.content).catch(() =>
+            Alert.alert('Erreur', "Impossible d'afficher cette image.")
+          );
+        } else {
+          Alert.alert('Image indisponible', "Aucune image n'est attachée.");
+        }
         break;
       case 'text':
-        // In a real app, you would show the text in a modal or new screen
-        Alert.alert('Voir le texte', item.content || 'Aucun contenu');
+        Alert.alert(item.title, item.content || 'Aucun contenu');
         break;
     }
   };
@@ -291,15 +366,11 @@ export default function ResourceCategoryScreen() {
 
   if (!category) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
-        <Stack.Screen
-          options={{
-            title: 'Catégorie introuvable',
-            headerStyle: {
-              backgroundColor: theme.background,
-            },
-            headerTintColor: theme.text,
-          }}
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+        <Header
+          title="Catégorie introuvable"
+          showBackButton={true}
+          onBackPress={() => router.back()}
         />
         <EmptyState
           title="Catégorie introuvable"
@@ -313,8 +384,8 @@ export default function ResourceCategoryScreen() {
   }
 
   return (
-    <AppLayout>
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]}>
+    <AppLayout hideMenuButton={true}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Stack.Screen
           options={{
             title: category.name,
@@ -324,7 +395,13 @@ export default function ResourceCategoryScreen() {
             headerTintColor: theme.text,
           }}
         />
-        
+
+        <Header
+          title={category.name}
+          showBackButton={true}
+          onBackPress={() => router.back()}
+        />
+
         {renderHeader()}
         
         {isLoading ? (

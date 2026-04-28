@@ -23,6 +23,7 @@ import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { getSupabase } from '@/utils/supabase';
+import { compressImage } from '@/utils/image-compression';
 import Toast from 'react-native-toast-message';
 
 export default function EditProfileScreen() {
@@ -57,34 +58,42 @@ export default function EditProfileScreen() {
       return;
     }
 
+    // Config robuste iOS PHPicker — voir resource-item-form.tsx pour explication
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.8,
+      allowsMultipleSelection: false,
+      selectionLimit: 1,
+      exif: false,
+      base64: false,
     });
 
     if (!result.canceled && result.assets && result.assets.length > 0) {
       setIsUploading(true);
       try {
-        const imageUri = result.assets[0].uri;
-        
-        // Upload to Supabase Storage
+        // Compression : 512px max + JPEG 0.7 → typiquement 50-100 KB au lieu de 3-5 Mo
+        const compressed = await compressImage(result.assets[0].uri, {
+          maxWidth: 512,
+          quality: 0.7,
+          format: 'jpeg',
+        });
+
         const supabase = getSupabase();
-        const fileExt = imageUri.split('.').pop();
-        const fileName = `${user?.id}-${Date.now()}.${fileExt}`;
+        const fileName = `${user?.id}-${Date.now()}.${compressed.extension}`;
         const filePath = `profiles/${fileName}`;
-        
-        // For React Native, we need to convert the file to a blob
-        const response = await fetch(imageUri);
-        const blob = await response.blob();
-        
+
+        // ArrayBuffer pour ne pas embarquer un type MIME via Blob
+        const response = await fetch(compressed.uri);
+        const arrayBuffer = await response.arrayBuffer();
+
         const { data, error } = await supabase
           .storage
           .from('avatars')
-          .upload(filePath, blob, {
-            contentType: `image/${fileExt}`,
-            upsert: true
+          .upload(filePath, arrayBuffer, {
+            contentType: compressed.mimeType,
+            upsert: true,
           });
         
         if (error) {
@@ -180,21 +189,7 @@ export default function EditProfileScreen() {
     
     try {
       const supabase = getSupabase();
-      
-      // Update user metadata in Supabase Auth
-      const { error: authUpdateError } = await supabase.auth.updateUser({
-        data: {
-          firstName,
-          lastName,
-        }
-      });
-      
-      if (authUpdateError) {
-        console.error('Error updating user metadata:', authUpdateError);
-        console.error('Full error object:', JSON.stringify(authUpdateError, null, 2));
-        throw new Error(`Erreur lors de la mise à jour des métadonnées: ${authUpdateError.message}`);
-      }
-      
+
       // Check if user exists in the users table
       const { data: existingUser, error: fetchError } = await supabase
         .from('users')
@@ -206,21 +201,6 @@ export default function EditProfileScreen() {
         console.error('Error checking if user exists:', fetchError);
         console.error('Full error object:', JSON.stringify(fetchError, null, 2));
         throw new Error(`Erreur lors de la vérification de l'utilisateur: ${fetchError.message}`);
-      }
-      
-      // Get table schema to debug column names
-      try {
-        const { data: tableInfo, error: tableError } = await supabase
-          .rpc('get_table_info', { table_name: 'users' });
-        
-        if (!tableError && tableInfo) {
-          console.log("Table schema for 'users':", JSON.stringify(tableInfo, null, 2));
-        } else if (tableError) {
-          console.error("Error getting table schema:", tableError.message);
-          console.error("Full error object:", JSON.stringify(tableError, null, 2));
-        }
-      } catch (schemaError) {
-        console.error("Error checking table schema:", schemaError);
       }
       
       let dbUpdateError;

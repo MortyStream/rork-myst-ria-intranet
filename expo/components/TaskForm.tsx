@@ -67,6 +67,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   const [showUserPicker, setShowUserPicker] = useState(false);
   const [showPriorityPicker, setShowPriorityPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [tempDeadline, setTempDeadline] = useState<Date>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Filter categories that the current user is responsible for
@@ -79,11 +80,24 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   // Filter users that can be assigned to tasks
  const eligibleUsers = users.filter(u => u.id !== user?.id);
 
+  const openDatePicker = () => {
+    setTempDeadline(deadline ?? new Date());
+    setShowDatePicker(true);
+  };
+
   const handleDateChange = (event: any, selectedDate?: Date) => {
-    setShowDatePicker(false);
-    if (selectedDate) {
-      setDeadline(selectedDate);
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+      if (selectedDate) setDeadline(selectedDate);
+    } else {
+      // iOS : stocker la valeur en cours sans fermer
+      if (selectedDate) setTempDeadline(selectedDate);
     }
+  };
+
+  const handleIOSDateConfirm = () => {
+    setDeadline(tempDeadline);
+    setShowDatePicker(false);
   };
 
   const handleSave = () => {
@@ -286,7 +300,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
                     borderColor: theme.border,
                   }
                 ]}
-                onPress={() => setShowDatePicker(true)}
+                onPress={openDatePicker}
               >
                 <View style={styles.dateContainer}>
                   <Calendar size={20} color={theme.primary} style={styles.dateIcon} />
@@ -539,14 +553,45 @@ export const TaskForm: React.FC<TaskFormProps> = ({
             </View>
           )}
 
-          {/* Date Picker */}
-          {showDatePicker && Platform.OS !== 'web' && (
+          {/* Date Picker — Android : dialog native */}
+          {showDatePicker && Platform.OS === 'android' && (
             <DateTimePicker
               value={deadline || new Date()}
               mode="date"
               display="default"
               onChange={handleDateChange}
             />
+          )}
+
+          {/* Date Picker — iOS : overlay absolu avec spinner + Annuler/OK */}
+          {showDatePicker && Platform.OS === 'ios' && (
+            <View style={styles.iosPickerOverlay}>
+              <TouchableOpacity
+                style={styles.iosPickerBackdrop}
+                activeOpacity={1}
+                onPress={() => setShowDatePicker(false)}
+              />
+              <View style={[styles.iosPickerContainer, { backgroundColor: theme.card }]}>
+                <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border }]}>
+                  <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.iosPickerBtn}>
+                    <Text style={[styles.iosPickerBtnText, { color: theme.inactive }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.iosPickerTitle, { color: theme.text }]}>Date d'échéance</Text>
+                  <TouchableOpacity onPress={handleIOSDateConfirm} style={styles.iosPickerBtn}>
+                    <Text style={[styles.iosPickerBtnText, { color: theme.primary, fontWeight: '700' }]}>OK</Text>
+                  </TouchableOpacity>
+                </View>
+                <DateTimePicker
+                  value={tempDeadline}
+                  mode="date"
+                  display="spinner"
+                  onChange={handleDateChange}
+                  locale="fr-FR"
+                  style={styles.iosPickerSpinner}
+                  textColor={theme.text}
+                />
+              </View>
+            </View>
           )}
         </View>
       </View>
@@ -785,5 +830,45 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 1,
+  },
+  iosPickerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'flex-end',
+    zIndex: 999,
+  },
+  iosPickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+  },
+  iosPickerContainer: {
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingBottom: 16,
+  },
+  iosPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+  },
+  iosPickerTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  iosPickerBtn: {
+    padding: 4,
+    minWidth: 60,
+  },
+  iosPickerBtnText: {
+    fontSize: 16,
+  },
+  iosPickerSpinner: {
+    height: 200,
   },
 });

@@ -1,21 +1,48 @@
-import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, ScrollView, Text, TouchableOpacity } from 'react-native';
-import { Stack } from 'expo-router';
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Text } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Search, Folder, FileText, Link as LinkIcon, Image as ImageIcon, AlignLeft } from 'lucide-react-native';
 import { useResourcesStore } from '@/store/resources-store';
-import { ResourceCategory } from '@/types/resource';
+import { ResourceCategory, ResourceItem, ResourceItemType } from '@/types/resource';
 import { ResourceItemList } from '@/components/ResourceItemList';
 import { EmptyState } from '@/components/EmptyState';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { AppLayout } from '@/components/AppLayout';
+import { Header } from '@/components/Header';
+import { Input } from '@/components/Input';
+
+// Retire accents + passe en minuscules pour la recherche insensible
+const normalize = (s: string) =>
+  s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+
+const getItemIcon = (type: ResourceItemType, color: string) => {
+  const props = { size: 18, color };
+  switch (type) {
+    case 'folder': return <Folder {...props} />;
+    case 'file': return <FileText {...props} />;
+    case 'link': return <LinkIcon {...props} />;
+    case 'image': return <ImageIcon {...props} />;
+    case 'text': return <AlignLeft {...props} />;
+    default: return <FileText {...props} />;
+  }
+};
 
 export default function ResourcesScreen() {
+  const router = useRouter();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const [categories, setCategories] = useState<ResourceCategory[]>([]);
-  const { getVisibleCategories, isLoading, initializeDefaultCategories } = useResourcesStore();
-  const toggleSidebarRef = useRef<() => void>();
+  const [searchQuery, setSearchQuery] = useState('');
+  const {
+    getVisibleCategories,
+    isLoading,
+    initializeDefaultCategories,
+    resourceItems,
+    getCategoryById,
+  } = useResourcesStore();
+  const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   useEffect(() => {
     loadCategories();
@@ -27,46 +54,124 @@ export default function ResourcesScreen() {
     setCategories(visibleCategories);
   };
 
-  const handleTitlePress = () => {
-    if (toggleSidebarRef.current) {
-      toggleSidebarRef.current();
+  // Recherche dans items + catégories (nom, description, contenu texte)
+  const searchResults = useMemo(() => {
+    const q = normalize(searchQuery.trim());
+    if (q.length < 2) return null; // pas de recherche active
+
+    const visibleCategoryIds = new Set(categories.map(c => c.id));
+    const matchingItems: ResourceItem[] = resourceItems.filter(item => {
+      if (!visibleCategoryIds.has(item.categoryId)) return false;
+      if (item.hidden) return false;
+      const hay = normalize(
+        `${item.title} ${item.description ?? ''} ${item.content ?? ''}`
+      );
+      return hay.includes(q);
+    });
+
+    const matchingCategories: ResourceCategory[] = categories.filter(cat => {
+      const hay = normalize(`${cat.name} ${cat.description ?? ''}`);
+      return hay.includes(q);
+    });
+
+    return { matchingItems, matchingCategories };
+  }, [searchQuery, resourceItems, categories]);
+
+  const handleResultPress = (categoryId: string) => {
+    router.push({ pathname: '/resources/[id]', params: { id: categoryId } });
+  };
+
+  const renderSearchResults = () => {
+    if (!searchResults) return null;
+    const { matchingItems, matchingCategories } = searchResults;
+    const totalHits = matchingItems.length + matchingCategories.length;
+
+    if (totalHits === 0) {
+      return (
+        <EmptyState
+          title="Aucun résultat"
+          message={`Rien ne correspond à « ${searchQuery} »`}
+          icon="search"
+        />
+      );
     }
+
+    return (
+      <View style={styles.searchResults}>
+        <Text style={[styles.searchResultsLabel, { color: darkMode ? theme.inactive : '#666' }]}>
+          {totalHits} résultat{totalHits > 1 ? 's' : ''}
+        </Text>
+
+        {matchingCategories.map(cat => (
+          <TouchableOpacity
+            key={`cat-${cat.id}`}
+            style={[styles.resultRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+            onPress={() => handleResultPress(cat.id)}
+          >
+            <Folder size={18} color={theme.primary} />
+            <View style={styles.resultContent}>
+              <Text style={[styles.resultTitle, { color: theme.text }]} numberOfLines={1}>
+                {cat.name}
+              </Text>
+              <Text style={[styles.resultSub, { color: darkMode ? theme.inactive : '#888' }]} numberOfLines={1}>
+                Catégorie
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ))}
+
+        {matchingItems.map(item => {
+          const parentCat = getCategoryById(item.categoryId);
+          return (
+            <TouchableOpacity
+              key={`item-${item.id}`}
+              style={[styles.resultRow, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => handleResultPress(item.categoryId)}
+            >
+              {getItemIcon(item.type, theme.primary)}
+              <View style={styles.resultContent}>
+                <Text style={[styles.resultTitle, { color: theme.text }]} numberOfLines={1}>
+                  {item.title}
+                </Text>
+                <Text style={[styles.resultSub, { color: darkMode ? theme.inactive : '#888' }]} numberOfLines={1}>
+                  {parentCat?.name ?? 'Catégorie inconnue'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    );
   };
 
   return (
-    <AppLayout 
+    <AppLayout
       hideMenuButton={true}
-      onSidebarToggle={(toggle) => {
-        toggleSidebarRef.current = toggle;
-      }}
+      onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
-      <SafeAreaView 
+      <SafeAreaView
         style={[styles.container, { backgroundColor: theme.background }]}
-        edges={['left', 'right']}
+        edges={['top']}
       >
-        <Stack.Screen
-          options={{
-            title: 'La Bible 📚',
-            headerStyle: { backgroundColor: theme.background },
-            headerTintColor: theme.text,
-          }}
+        <Header
+          title="La Bible 📚"
+          onTitlePress={() => toggleSidebar?.()}
+          containerStyle={styles.headerContainer}
         />
-        <TouchableOpacity 
-          style={[styles.header, { backgroundColor: theme.card }]}
-          onPress={handleTitlePress}
-          activeOpacity={0.7}
-        >
-          <Text style={[styles.title, { color: theme.text }]}>
-            La Bible 📚
-          </Text>
-          <Text style={[styles.subtitle, { color: theme.inactive }]}>
-            Accédez à toute la documentation du projet
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.searchContainer}>
+          <Input
+            placeholder="Rechercher un dossier, fichier, lien…"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            leftIcon={<Search size={20} color={darkMode ? '#ffffff' : '#333'} />}
+            containerStyle={styles.searchInput}
+          />
+        </View>
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {isLoading ? (
             <EmptyState
@@ -74,6 +179,8 @@ export default function ResourcesScreen() {
               message="Récupération des catégories en cours."
               icon="database"
             />
+          ) : searchResults ? (
+            renderSearchResults()
           ) : categories.length > 0 ? (
             <View style={styles.listContainer}>
               {categories.map((category) => (
@@ -98,16 +205,23 @@ export default function ResourcesScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  header: {
-    padding: 16,
-    paddingTop: 12,
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.1)',
-  },
-  title: { fontSize: 24, fontWeight: '700', marginBottom: 4 },
-  subtitle: { fontSize: 14 },
+  headerContainer: { marginTop: -8 },
+  searchContainer: { paddingHorizontal: 16, paddingVertical: 8 },
+  searchInput: { marginBottom: 0 },
   scrollView: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingVertical: 6 },
   listContainer: { paddingHorizontal: 16, gap: 6 },
+  searchResults: { paddingHorizontal: 16, gap: 8 },
+  searchResultsLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4, marginTop: 4 },
+  resultRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 12,
+  },
+  resultContent: { flex: 1 },
+  resultTitle: { fontSize: 15, fontWeight: '600' },
+  resultSub: { fontSize: 12, marginTop: 2 },
 });

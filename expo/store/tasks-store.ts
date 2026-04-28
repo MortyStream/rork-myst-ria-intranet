@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Task, TaskComment, TaskStatus, TaskPriority } from '@/types/task';
 import { getSupabase } from '@/utils/supabase';
+import { useNotificationsStore } from './notifications-store';
 
 const fetchTasksFromSupabase = async (): Promise<Task[]> => {
   const supabase = getSupabase();
@@ -18,6 +19,7 @@ interface TasksState {
   tasks: Task[];
   isLoading: boolean;
   error: string | null;
+  remindersSent: Record<string, string>; // clé: "taskId-3d" | "taskId-1d", valeur: date "YYYY-MM-DD"
 }
 
 interface TasksStore extends TasksState {
@@ -36,6 +38,8 @@ interface TasksStore extends TasksState {
   getTasksByPriority: (priority: TaskPriority) => Task[];
   getOverdueTasks: () => Task[];
   getUpcomingDeadlines: (days: number) => Task[];
+  sendTaskReminder: (taskId: string) => Promise<void>;
+  checkAndSendTaskReminders: (userId: string) => void;
 }
 
 export const useTasksStore = create<TasksStore>()(
@@ -44,6 +48,7 @@ export const useTasksStore = create<TasksStore>()(
       tasks: [],
       isLoading: false,
       error: null,
+      remindersSent: {},
 
       initializeTasks: async () => {
         set({ isLoading: true, error: null });
@@ -73,6 +78,20 @@ export const useTasksStore = create<TasksStore>()(
           .single();
         if (error) throw error;
         set(state => ({ tasks: [data, ...state.tasks] }));
+
+        // Notifier chaque assigné (sauf le créateur)
+        const assignedTo: string[] = taskData.assignedTo ?? [];
+        const toNotify = assignedTo.filter(uid => uid !== taskData.assignedBy);
+        if (toNotify.length > 0) {
+          useNotificationsStore.getState().addNotification({
+            title: '📋 Nouvelle tâche assignée',
+            message: `"${taskData.title}" vous a été assignée.`,
+            targetRoles: [],
+            targetUserIds: toNotify,
+            taskId: data.id,
+          });
+        }
+
         return data.id;
       },
 
@@ -199,11 +218,42 @@ export const useTasksStore = create<TasksStore>()(
           t.status !== 'validated'
         );
       },
+
+      sendTaskReminder: async (taskId) => {
+        const task = get().getTaskById(taskId);
+        if (!task || !task.assignedTo.length) return;
+
+        let tempsRestant = 'bientôt';
+        if (task.deadline) {
+          const diffMs = new Date(task.deadline).getTime() - Date.now();
+          const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          if (diffDays > 1) tempsRestant = `${diffDays} jours`;
+          else if (diffDays === 1) tempsRestant = '24 heures';
+          else tempsRestant = 'moins de 24 heures';
+        }
+
+        useNotificationsStore.getState().addNotification({
+          title: '⏰ Rappel de tâche',
+          message: `Attention, il reste ${tempsRestant} pour terminer "${task.title}" !`,
+          targetRoles: [],
+          targetUserIds: task.assignedTo,
+          taskId: task.id,
+        });
+      },
+
+      // No-op : les rappels de tâches sont désormais gérés côté serveur par
+      // l'Edge Function `scheduled-reminders` qui tourne toutes les 15 min via
+      // pg_cron (Supabase). Garder une logique locale en parallèle créerait
+      // des doublons et un comportement incohérent entre devices.
+      // On garde la signature pour compat avec les appelants existants.
+      checkAndSendTaskReminders: (_userId) => {
+        return;
+      },
     }),
     {
       name: 'tasks-storage-v2',
       storage: createJSONStorage(() => AsyncStorage),
-      partialize: (state) => ({ tasks: state.tasks }),
+      partialize: (state) => ({ tasks: state.tasks, remindersSent: state.remindersSent }),
     }
   )
 );

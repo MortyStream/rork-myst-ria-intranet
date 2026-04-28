@@ -4,74 +4,33 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { User, AuthState } from '@/types/user';
 import { getSupabase, syncUserWithSupabase } from '@/utils/supabase';
+import { unregisterPushToken } from '@/utils/push-notifications';
 
-// Admin user for initial setup - removed special role assignment
-const DEFAULT_ADMIN: User = {
-  id: 'admin-id',
-  username: 'admin',
-  email: 'kevin.perret@mysteriaevent.ch',
-  firstName: 'Kévin',
-  lastName: 'Perret',
-  role: 'user', // Changed from 'admin' to 'user' to avoid hardcoding special roles
-  permissions: ['all'],
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
+// SÉCURITÉ : aucun "PREVIEW_USER" admin auto-loggué.
+// Les anciens DEFAULT_ADMIN / DEFAULT_MODERATOR / PREVIEW_USER ouvraient une porte dérobée
+// (n'importe quelles creds → accès admin via état initial). Tout est désormais à null
+// par défaut, et l'app oblige à passer par une vraie authentification Supabase.
 
-// Moderator user for testing
-const DEFAULT_MODERATOR: User = {
-  id: 'moderator-id',
-  username: 'moderator',
-  email: 'moderator@mysteriaevent.ch',
-  firstName: 'Modérateur',
-  lastName: 'Test',
-  role: 'moderator',
-  permissions: ['manage_users', 'manage_content'],
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-};
-
-const PREVIEW_USER: User = {
-  id: 'preview-user',
-  username: 'preview',
-  email: 'preview@mysteriaevent.local',
-  firstName: 'Mode',
-  lastName: 'Preview',
-  role: 'admin',
-  permissions: ['all'],
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-  editable: true,
-};
-
-const createPreviewUser = (): User => ({
-  ...PREVIEW_USER,
-  createdAt: new Date().toISOString(),
-  updatedAt: new Date().toISOString(),
-});
-
-const enablePreviewMode = (
+const clearAuthState = (
   set: (partial: Partial<AuthStore>) => void,
   reason: string,
+  errorMessage?: string,
 ): boolean => {
-  const previewUser = createPreviewUser();
-
-  console.log(`Preview mode enabled: ${reason}`);
+  console.log(`Auth state cleared: ${reason}`);
   set({
-    user: previewUser,
-    isAuthenticated: true,
+    user: null,
+    isAuthenticated: false,
     isLoading: false,
-    error: null,
+    error: errorMessage ?? null,
   });
-
-  return true;
+  return false;
 };
 
 interface AuthStore extends AuthState {
   user: User | null; // Explicitly adding user property to fix TypeScript error
   login: (username: string, password: string) => Promise<void>;
   logout: () => void;
-  updateUser: (user: User) => void;
+  updateUser: (user: User) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   isFirstLogin: boolean;
   setFirstLoginComplete: () => void;
@@ -105,8 +64,8 @@ interface AuthStore extends AuthState {
 export const useAuthStore = create<AuthStore>()(
   persist(
     (set, get) => ({
-      user: createPreviewUser(),
-      isAuthenticated: true,
+      user: null,
+      isAuthenticated: false,
       isLoading: false,
       error: null,
       isFirstLogin: true,
@@ -142,11 +101,11 @@ export const useAuthStore = create<AuthStore>()(
       
       hardReset: async () => {
         console.log('Performing hard reset of auth system...');
-        
-        // Reset all state
-        set({ 
-          user: createPreviewUser(), 
-          isAuthenticated: true,
+
+        // Reset à l'état déconnecté — l'utilisateur devra se reconnecter
+        set({
+          user: null,
+          isAuthenticated: false,
           error: null,
           initializationAttempts: 0,
           lastInitializationTime: null,
@@ -154,7 +113,7 @@ export const useAuthStore = create<AuthStore>()(
           initializationTimeout: false,
           storedCredentials: null
         });
-        
+
         console.log('Hard reset completed');
       },
       
@@ -687,17 +646,18 @@ export const useAuthStore = create<AuthStore>()(
             }
           }
           
-          // No session found, enable preview mode instead of blocking the app
+          // Pas de session valide → l'utilisateur DOIT passer par /login.
+          // Plus de fallback "preview admin" qui ouvrait une porte dérobée.
           get().setInitializationStatus('success');
-          return enablePreviewMode(set, 'No active Supabase session found');
+          return clearAuthState(set, 'No active Supabase session found');
         } catch (error) {
           console.error('Error during auth initialization:', error);
           console.error('Full error object:', JSON.stringify(error, null, 2));
-          
+
           const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
 
           get().setInitializationStatus('error');
-          return enablePreviewMode(set, `Auth initialization failed: ${errorMessage}`);
+          return clearAuthState(set, `Auth initialization failed`, errorMessage);
         }
       },
       
@@ -805,9 +765,13 @@ export const useAuthStore = create<AuthStore>()(
           if (error) {
             console.error('Login error:', error);
             console.error('Full error object:', JSON.stringify(error, null, 2));
-            set({ 
-              isLoading: false, 
-              error: `Identifiants invalides: ${error.message}` 
+            // SÉCURITÉ : forcer user/isAuthenticated à null sur erreur pour qu'aucun
+            // état résiduel (ancien preview, session expirée) ne laisse passer.
+            set({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: `Identifiants invalides: ${error.message}`,
             });
             return;
           }
@@ -989,27 +953,55 @@ export const useAuthStore = create<AuthStore>()(
       logout: () => {
         try {
           console.log('Logging out');
-          
+
+          const currentUser = get().user;
+
+          // Remove push token from Supabase before signing out
+          if (currentUser && currentUser.id !== 'preview-user') {
+            unregisterPushToken(currentUser.id);
+          }
+
           // Sign out from Supabase
           const supabase = getSupabase();
           supabase.auth.signOut();
-          
+
           // Clear stored credentials
           get().setStoredCredentials(null);
         } catch (error) {
           console.error('Error signing out:', error);
           console.error('Full error object:', JSON.stringify(error, null, 2));
         }
-        
-        console.log('User logged out, returning to preview mode');
-        set({ 
-          user: createPreviewUser(), 
-          isAuthenticated: true,
+
+        console.log('User logged out');
+        set({
+          user: null,
+          isAuthenticated: false,
           error: null
         });
       },
-      
-      updateUser: (user: User) => {
+
+      updateUser: async (user: User) => {
+        try {
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('users')
+            .update({
+              firstName: user.firstName,
+              lastName: user.lastName,
+              email: user.email,
+              phone: user.phone,
+              bio: user.bio,
+              // La colonne Supabase s'appelle avatarUrl, pas profileImage
+              avatarUrl: user.profileImage ?? (user as any).avatarUrl,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq('id', user.id);
+          if (error) {
+            console.error('updateUser Supabase error:', error);
+          }
+        } catch (e) {
+          console.error('updateUser error:', e);
+        }
         set({ user });
       },
       
@@ -1050,6 +1042,23 @@ export const useAuthStore = create<AuthStore>()(
     {
       name: 'mysteria-auth-storage',
       storage: createJSONStorage(() => AsyncStorage),
+      // Bump version pour invalider l'ancien état persisté contenant le preview-user admin.
+      // Avant ce fix, l'app démarrait avec `user: PREVIEW_USER, isAuthenticated: true`,
+      // état qui était sauvegardé dans AsyncStorage. Cette migration force tout user
+      // "preview-user" résiduel à null pour fermer la porte dérobée.
+      version: 2,
+      migrate: (persistedState: unknown, fromVersion: number) => {
+        const state = (persistedState ?? {}) as { user?: { id?: string } | null; isAuthenticated?: boolean };
+        if (fromVersion < 2 && state.user?.id === 'preview-user') {
+          return {
+            ...state,
+            user: null,
+            isAuthenticated: false,
+            storedCredentials: null,
+          };
+        }
+        return state;
+      },
       partialize: (state) => ({
         // Only persist these fields to avoid issues with circular references
         user: state.user,

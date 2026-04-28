@@ -23,41 +23,33 @@ import { useAuthStore } from '@/store/auth-store';
 import { useUsersStore } from '@/store/users-store';
 import { Colors } from '@/constants/colors';
 import { Calendar } from '@/components/Calendar';
-import { Card } from '@/components/Card';
 import { Button } from '@/components/Button';
 import { EmptyState } from '@/components/EmptyState';
 import { Event } from '@/types/calendar';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
-import { UserRole } from '@/types/user';
 
 export default function CalendarScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { darkMode } = useSettingsStore();
-  const { getEventsByDate, getUpcomingEvents, initializeEvents } = useCalendarStore();
+  const { getEventsByDate, initializeEvents } = useCalendarStore();
+  // Souscription réactive : re-rend la liste quand des events changent dans le store
+  const storeEvents = useCalendarStore(state => state.events);
   const { getUserById } = useUsersStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
-  const [events, setEvents] = useState<Event[]>([]);
-  const [upcomingEvents, setUpcomingEvents] = useState<Event[]>([]);
 
-  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'responsable_pole';
+  const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
 
   useEffect(() => {
-  initializeEvents();
-}, []);
-  useEffect(() => {
-    if (user) {
-      const dateEvents = getEventsByDate(selectedDate);
-      setEvents(dateEvents);
+    initializeEvents();
+  }, []);
 
-      const upcoming = getUpcomingEvents(5);
-      setUpcomingEvents(upcoming);
-    }
-  }, [selectedDate, user]);
+  // Recalcul réactif des events du jour à chaque changement de date ou de store
+  const events = getEventsByDate(selectedDate);
 
   const handleSelectDate = (date: Date) => {
     setSelectedDate(date);
@@ -70,19 +62,19 @@ export default function CalendarScreen() {
   };
 
   const handleEventPress = (eventId: string) => {
-    router.push(`/calendar/event-detail/${eventId}`);
+    router.push({ pathname: '/calendar/event-detail', params: { id: eventId } });
   };
 
   const formatEventTime = (startTime: string, endTime?: string) => {
     const start = new Date(startTime);
     const formattedStart = start.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    
+
     if (endTime) {
       const end = new Date(endTime);
       const formattedEnd = end.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       return `${formattedStart} - ${formattedEnd}`;
     }
-    
+
     return formattedStart;
   };
 
@@ -104,12 +96,12 @@ export default function CalendarScreen() {
         onPress={() => handleEventPress(item.id)}
       >
         <View style={[styles.eventColorIndicator, { backgroundColor: item.color || theme.primary }]} />
-        
+
         <View style={styles.eventContent}>
           <Text style={[styles.eventTitle, { color: theme.text }]}>
             {item.title}
           </Text>
-          
+
           <View style={styles.eventDetails}>
             <View style={styles.eventDetail}>
               <Clock size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
@@ -117,7 +109,7 @@ export default function CalendarScreen() {
                 {formatEventTime(item.startTime, item.endTime)}
               </Text>
             </View>
-            
+
             {item.location && (
               <View style={styles.eventDetail}>
                 <MapPin size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
@@ -126,7 +118,7 @@ export default function CalendarScreen() {
                 </Text>
               </View>
             )}
-            
+
             <View style={styles.eventDetail}>
               <Users size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.eventDetailIcon} />
               <Text style={[styles.eventDetailText, { color: darkMode ? theme.inactive : '#666666' }]}>
@@ -135,14 +127,14 @@ export default function CalendarScreen() {
             </View>
           </View>
         </View>
-        
+
         <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
       </TouchableOpacity>
     );
   };
 
   return (
-    <AppLayout 
+    <AppLayout
       hideMenuButton={true}
       onSidebarToggle={(toggle) => setToggleSidebar(() => toggle)}
     >
@@ -164,23 +156,23 @@ export default function CalendarScreen() {
         />
 
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-          <Calendar 
-            onSelectDate={handleSelectDate} 
+          <Calendar
+            onSelectDate={handleSelectDate}
             selectedDate={selectedDate}
           />
-          
+
           <View style={styles.selectedDateContainer}>
             <CalendarIcon size={20} color={theme.primary} style={styles.selectedDateIcon} />
             <Text style={[styles.selectedDateText, { color: theme.text }]}>
               {formatEventDate(selectedDate)}
             </Text>
           </View>
-          
+
           <View style={styles.eventsContainer}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>
               Événements du jour
             </Text>
-            
+
             {events.length > 0 ? (
               <FlatList
                 data={events}
@@ -211,7 +203,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   headerContainer: {
-    marginTop: -8, // Added to match home page header margin
+    marginTop: -8,
   },
   addButton: {
     padding: 8,
@@ -221,29 +213,31 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 20,
-    paddingTop: 0, // Adjusted to match the "Accueil" page margin
+    paddingTop: 0,
   },
   selectedDateContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 16,
-    marginTop: 12, // Adjusted for better spacing
+    marginTop: 12,
   },
   selectedDateIcon: {
     marginRight: 8,
   },
   selectedDateText: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     textTransform: 'capitalize',
+    letterSpacing: -0.3,
   },
   eventsContainer: {
     marginBottom: 24,
   },
   sectionTitle: {
     fontSize: 18,
-    fontWeight: '600',
+    fontWeight: '700',
     marginBottom: 12,
+    letterSpacing: -0.3,
   },
   eventsList: {
     gap: 12,
@@ -251,14 +245,14 @@ const styles = StyleSheet.create({
   eventItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderRadius: 12,
+    borderRadius: 16,
     overflow: 'hidden',
-    padding: 12,
-    elevation: 2, // Added subtle shadow for Android
-    shadowColor: '#000', // Added subtle shadow for iOS
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    padding: 14,
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
   },
   eventColorIndicator: {
     width: 4,

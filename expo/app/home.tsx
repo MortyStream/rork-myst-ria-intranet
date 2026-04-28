@@ -22,7 +22,7 @@ import {
 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
-import { useSettingsStore } from '@/store/settings-store';
+import { useSettingsStore, LEGACY_WELCOME_MESSAGE } from '@/store/settings-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useTasksStore } from '@/store/tasks-store';
 import { useCalendarStore } from '@/store/calendar-store';
@@ -40,7 +40,7 @@ export default function HomeScreen() {
   const { user } = useAuthStore();
   const { darkMode, welcomeMessage } = useSettingsStore();
   const { getUnreadCount } = useNotificationsStore();
-  const { getOverdueTasks, getUpcomingDeadlines } = useTasksStore();
+  const { getOverdueTasks, getUpcomingDeadlines, getUserTasks } = useTasksStore();
   const { getUpcomingEvents } = useCalendarStore();
   
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -51,7 +51,32 @@ export default function HomeScreen() {
   // Get user tasks and events
   const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
   const upcomingTasks = user ? getUpcomingDeadlines(7).filter(task => task.assignedTo.includes(user.id)) : [];
-  const upcomingEvents = user ? getUpcomingEvents(3) : [];
+
+  // Compteur du badge "Mes tâches" : toutes les tâches assignées à l'user encore à faire
+  // (pending ou in_progress), peu importe la deadline. Le badge correspond donc au
+  // "il te manque à valider" — pas juste les tâches dans les 7 prochains jours.
+  const pendingTasksCount = user
+    ? getUserTasks(user.id).filter(
+        (t) =>
+          t.assignedTo.includes(user.id) &&
+          (t.status === 'pending' || t.status === 'in_progress')
+      ).length
+    : 0;
+
+  // Règles d'affichage des événements à venir sur le home :
+  // ✅ L'utilisateur est participant confirmé ou en attente (invited)
+  // ✅ L'événement n'a aucun participant (event ouvert/public)
+  // ❌ L'utilisateur a décliné
+  // ❌ L'événement a des participants mais l'utilisateur n'en fait pas partie (non invité)
+  const upcomingEvents = user
+    ? getUpcomingEvents().filter(event => {
+        const hasParticipants = event.participants && event.participants.length > 0;
+        if (!hasParticipants) return true; // event ouvert, pas d'invitations
+        const participant = event.participants!.find(p => p.userId === user.id);
+        if (!participant) return false; // event avec invitations mais user pas invité
+        return participant.status !== 'declined'; // invité : ok sauf si décliné
+      }).slice(0, 3)
+    : [];
   
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
@@ -93,7 +118,7 @@ export default function HomeScreen() {
       icon: <CheckSquare size={24} color="#ffffff" />,
       path: '/tasks',
       color: ['#4c6ef5', '#3b5bdb'] as [string, string],
-      count: upcomingTasks.length,
+      count: pendingTasksCount,
     },
     {
       id: '2',
@@ -176,19 +201,18 @@ export default function HomeScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {/* Welcome Card */}
-          <Card style={styles.welcomeCard}>
-            <View style={styles.welcomeContent}>
-              <Sparkles size={24} color={appColors.primary} style={styles.welcomeIcon} />
-              <Text style={[styles.welcomeTitle, { color: theme.text }]}>
-                {welcomeMessage}
-              </Text>
-              <Text style={[styles.welcomeText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Accédez rapidement à toutes les fonctionnalités de l'application.
-              </Text>
-            </View>
-          </Card>
-          
+          {/* Bandeau d'annonce : visible uniquement si un admin a posté un vrai message */}
+          {welcomeMessage && welcomeMessage.trim() !== '' && welcomeMessage.trim() !== LEGACY_WELCOME_MESSAGE && (
+            <Card style={styles.welcomeCard}>
+              <View style={styles.welcomeContent}>
+                <Sparkles size={20} color={appColors.primary} style={styles.welcomeIcon} />
+                <Text style={[styles.welcomeTitle, { color: theme.text }]}>
+                  {welcomeMessage}
+                </Text>
+              </View>
+            </Card>
+          )}
+
           {/* Quick Access Grid */}
           <View style={styles.sectionHeader}>
             <Text style={[styles.sectionTitle, { color: theme.text, textAlign: 'center' }]}>
@@ -260,7 +284,7 @@ export default function HomeScreen() {
                       <View style={styles.taskMetaItem}>
                         <Clock size={14} color={darkMode ? theme.inactive : '#666666'} style={styles.taskMetaIcon} />
                         <Text style={[styles.taskMetaText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                          Échéance: {formatDate(new Date(task.dueDate || task.deadline || ''))}
+                          Échéance: {formatDate(new Date(task.deadline || ''))}
                         </Text>
                       </View>
                     </View>
@@ -290,11 +314,14 @@ export default function HomeScreen() {
             </View>
             
             {upcomingEvents.length > 0 ? (
-              upcomingEvents.map((event) => (
+              upcomingEvents.map((event) => {
+                const userParticipant = user ? event.participants?.find(p => p.userId === user.id) : null;
+                const needsResponse = userParticipant?.status === 'pending';
+                return (
                 <TouchableOpacity
                   key={event.id}
                   style={[styles.eventItem, { backgroundColor: theme.card }]}
-                  onPress={() => router.push(`/calendar/event-detail/${event.id}`)}
+                  onPress={() => router.push({ pathname: '/calendar/event-detail', params: { id: event.id } })}
                 >
                   <View style={styles.eventDate}>
                     <Text style={[styles.eventDay, { color: theme.text }]}>
@@ -304,13 +331,20 @@ export default function HomeScreen() {
                       {new Date(event.startTime).toLocaleDateString('fr-FR', { month: 'short' })}
                     </Text>
                   </View>
-                  
+
                   <View style={[styles.eventSeparator, { backgroundColor: event.color || appColors.primary }]} />
-                  
+
                   <View style={styles.eventContent}>
-                    <Text style={[styles.eventTitle, { color: theme.text }]}>
-                      {event.title}
-                    </Text>
+                    <View style={styles.eventTitleRow}>
+                      <Text style={[styles.eventTitle, { color: theme.text }]} numberOfLines={1}>
+                        {event.title}
+                      </Text>
+                      {needsResponse && (
+                        <View style={[styles.rsvpBadge, { backgroundColor: theme.warning }]}>
+                          <Text style={styles.rsvpBadgeText}>À répondre</Text>
+                        </View>
+                      )}
+                    </View>
                     
                     <View style={styles.eventMeta}>
                       <View style={styles.eventMetaItem}>
@@ -324,7 +358,8 @@ export default function HomeScreen() {
                   
                   <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
                 </TouchableOpacity>
-              ))
+                );
+              })
             ) : (
               <Text style={[styles.emptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
                 Il n'y a pas d'événements à venir.
@@ -535,6 +570,23 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
     marginBottom: 4,
+    flex: 1,
+  },
+  eventTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rsvpBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+    marginBottom: 4,
+  },
+  rsvpBadgeText: {
+    color: '#ffffff',
+    fontSize: 11,
+    fontWeight: '700',
   },
   eventMeta: {
     flexDirection: 'row',

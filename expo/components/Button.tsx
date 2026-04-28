@@ -138,24 +138,26 @@ export const Button: React.FC<ButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
-    borderRadius: 8,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    borderRadius: 12,
+    paddingVertical: 13,
+    paddingHorizontal: 18,
     justifyContent: 'center',
     alignItems: 'center',
     flexDirection: 'row',
   },
   smallButton: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 14,
+    borderRadius: 10,
   },
   fullWidth: {
     width: '100%',
   },
   text: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: '600',
     textAlign: 'center',
+    letterSpacing: -0.2,
   },
   smallText: {
     fontSize: 14,

@@ -6,7 +6,8 @@ export interface Notification {
   targetUserIds?: string[];
   categoryId?: string;
   resourceItemId?: string;
-  eventId?: string; // ID de l'événement associé
+  eventId?: string;   // ID de l'événement associé (deep link)
+  taskId?: string;    // ID de la tâche associée (deep link)
   read: boolean;
   createdAt: string;
   updatedAt: string;

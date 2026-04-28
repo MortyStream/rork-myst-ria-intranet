@@ -7,12 +7,14 @@ import {
   Alert,
   Platform,
   KeyboardAvoidingView,
+  TouchableOpacity,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Lock, Eye, EyeOff } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
+import { getSupabase } from '@/utils/supabase';
 import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
@@ -45,50 +47,67 @@ export default function ChangePasswordScreen() {
     setShowConfirmPassword(!showConfirmPassword);
   };
   
-  const handleSave = () => {
-    // Réinitialiser l'erreur
+  const handleSave = async () => {
     setError('');
-    
-    // Vérifier que tous les champs sont remplis
+
     if (!currentPassword || !newPassword || !confirmPassword) {
       setError('Veuillez remplir tous les champs.');
       return;
     }
-    
-    // Vérifier que le nouveau mot de passe et la confirmation correspondent
     if (newPassword !== confirmPassword) {
       setError('Le nouveau mot de passe et sa confirmation ne correspondent pas.');
       return;
     }
-    
-    // Vérifier que le nouveau mot de passe est différent de l'ancien
     if (currentPassword === newPassword) {
       setError('Le nouveau mot de passe doit être différent de l\'ancien.');
       return;
     }
-    
-    // Vérifier que le nouveau mot de passe est assez fort
     if (newPassword.length < 8) {
       setError('Le nouveau mot de passe doit contenir au moins 8 caractères.');
       return;
     }
-    
+    if (!user?.email) {
+      setError('Aucun email associé à votre compte — impossible de vérifier le mot de passe actuel.');
+      return;
+    }
+
     setIsSubmitting(true);
-    
-    // Simuler une requête API pour changer le mot de passe
-    setTimeout(() => {
-      setIsSubmitting(false);
+
+    try {
+      const supabase = getSupabase();
+
+      // 1. Vérifier l'ancien mot de passe en retentant un signIn (sans modifier la session active)
+      const { error: verifyError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password: currentPassword,
+      });
+      if (verifyError) {
+        setError('Le mot de passe actuel est incorrect.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Appliquer le nouveau mot de passe
+      const { error: updateError } = await supabase.auth.updateUser({
+        password: newPassword,
+      });
+      if (updateError) {
+        setError(updateError.message || 'Erreur lors de la modification du mot de passe.');
+        setIsSubmitting(false);
+        return;
+      }
+
       Alert.alert(
         'Succès',
         'Votre mot de passe a été modifié avec succès.',
-        [
-          {
-            text: 'OK',
-            onPress: () => router.back(),
-          },
-        ]
+        [{ text: 'OK', onPress: () => router.back() }]
       );
-    }, 1500);
+    } catch (e: any) {
+      console.error('Change password error:', e);
+      setError(e?.message || 'Une erreur est survenue.');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
   const handleCancel = () => {
@@ -201,15 +220,6 @@ export default function ChangePasswordScreen() {
     </SafeAreaView>
   );
 }
-
-// TouchableOpacity component for the eye icons
-const TouchableOpacity = ({ children, onPress }) => {
-  return (
-    <View style={{ padding: 8 }} onTouchEnd={onPress}>
-      {children}
-    </View>
-  );
-};
 
 const styles = StyleSheet.create({
   container: {

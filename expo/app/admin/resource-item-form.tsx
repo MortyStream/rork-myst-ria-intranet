@@ -11,9 +11,12 @@ import {
   KeyboardAvoidingView,
   Switch,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import {
   Folder,
   FileText,
@@ -69,8 +72,13 @@ export default function ResourceItemFormScreen() {
   const [type, setType] = useState<ResourceItemType>('folder');
   const [url, setUrl] = useState('');
   const [content, setContent] = useState('');
-  const [image, setImage] = useState<string | null>(null);
+  const [image, setImage] = useState<string | null>(null);        // URL publique après upload
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [fileName, setFileName] = useState('');
+  const [fileUri, setFileUri] = useState<string | null>(null);
+  const [fileMime, setFileMime] = useState<string>('application/octet-stream');
+  const [isUploadingFile, setIsUploadingFile] = useState(false);
+  const [uploadedFileUrl, setUploadedFileUrl] = useState<string | null>(null);
   const [hidden, setHidden] = useState(false);
   const [showTypePicker, setShowTypePicker] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -117,18 +125,117 @@ export default function ResourceItemFormScreen() {
   }, [itemId]);
 
   const handlePickImage = async () => {
-    // Simuler la sélection d'une image
-    // Dans une vraie application, nous utiliserions expo-image-picker
-    setImage('https://images.unsplash.com/photo-1518791841217-8f162f1e1131?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=800&q=60');
-    Alert.alert('Image sélectionnée', 'Une image a été sélectionnée.');
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) {
+        Alert.alert('Permission refusée', "L'accès à la galerie est requis.");
+        return;
+      }
+      // Config robuste iOS PHPicker :
+      // - selectionLimit: 1 explicite force le mode single-select (sinon iOS peut afficher
+      //   l'UI multi-select avec checkmark mais sans bouton "Add" → user bloqué)
+      // - allowsEditing: false évite le crop iOS qui demande une 2e confirmation
+      // - exif/base64: false réduit la mémoire et évite les crashs sur grosses photos
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsMultipleSelection: false,
+        selectionLimit: 1,
+        allowsEditing: false,
+        exif: false,
+        base64: false,
+      });
+      if (result.canceled || !result.assets || !result.assets[0]) return;
+
+      const asset = result.assets[0];
+      setIsUploadingImage(true);
+      setImage(null);
+
+      try {
+        const { getSupabase } = await import('@/utils/supabase');
+        const { compressImage } = await import('@/utils/image-compression');
+        const supabase = getSupabase();
+
+        // Compression : 1024px max + JPEG 0.7 — typiquement 100-300 KB
+        const compressed = await compressImage(asset.uri, {
+          maxWidth: 1024,
+          quality: 0.7,
+          format: 'jpeg',
+        });
+
+        const response = await fetch(compressed.uri);
+        const arrayBuffer = await response.arrayBuffer();
+        const uploadPath = `${categoryId ?? 'misc'}/${Date.now()}-image.${compressed.extension}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('resources')
+          .upload(uploadPath, arrayBuffer, { contentType: compressed.mimeType, upsert: false });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('resources')
+          .getPublicUrl(uploadPath);
+
+        setImage(urlData?.publicUrl ?? null);
+      } catch (uploadErr) {
+        console.error('Image upload error:', uploadErr);
+        Alert.alert('Erreur upload', "L'image a été sélectionnée mais n'a pas pu être uploadée.");
+      } finally {
+        setIsUploadingImage(false);
+      }
+    } catch (e) {
+      console.error('Image pick error:', e);
+      Alert.alert('Erreur', "Impossible de sélectionner l'image.");
+    }
   };
 
   const handlePickFile = async () => {
     try {
-      // Simuler la sélection d'un fichier
-      // Dans une vraie application, nous utiliserions expo-document-picker
-      setFileName('document_exemple.pdf');
-      Alert.alert('Fichier sélectionné', 'document_exemple.pdf a été sélectionné.');
+      const result = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+      if (result.canceled || !result.assets || result.assets.length === 0) return;
+
+      const asset = result.assets[0];
+      setFileName(asset.name);
+      setFileUri(asset.uri);
+      setFileMime(asset.mimeType ?? 'application/octet-stream');
+      setUploadedFileUrl(null); // reset url précédente
+
+      // Upload immédiat vers Supabase Storage
+      setIsUploadingFile(true);
+      try {
+        const { getSupabase } = await import('@/utils/supabase');
+        const supabase = getSupabase();
+
+        const response = await fetch(asset.uri);
+        const arrayBuffer = await response.arrayBuffer();
+        const ext = asset.name.split('.').pop() ?? 'bin';
+        const uploadPath = `${categoryId ?? 'misc'}/${Date.now()}-${asset.name}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from('resources')
+          .upload(uploadPath, arrayBuffer, {
+            contentType: asset.mimeType ?? 'application/octet-stream',
+            upsert: false,
+          });
+
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabase.storage
+          .from('resources')
+          .getPublicUrl(uploadPath);
+
+        setUploadedFileUrl(urlData?.publicUrl ?? null);
+      } catch (uploadErr) {
+        console.error('File upload error:', uploadErr);
+        Alert.alert('Erreur upload', "Le fichier a été sélectionné mais n'a pas pu être uploadé. Vérifiez votre connexion.");
+      } finally {
+        setIsUploadingFile(false);
+      }
     } catch (error) {
       console.error('Error picking document:', error);
       Alert.alert('Erreur', 'Une erreur est survenue lors de la sélection du fichier.');
@@ -166,7 +273,7 @@ export default function ResourceItemFormScreen() {
       // Préparer les données selon le type
       let itemContent = null;
       let itemUrl = null;
-      let fileUrl = existingItem?.fileUrl || (fileName ? 'file://example/path/' + fileName : null);
+      let fileUrl = uploadedFileUrl || existingItem?.fileUrl || null;
 
       switch (type) {
         case 'link':
@@ -179,8 +286,11 @@ export default function ResourceItemFormScreen() {
           itemContent = image;
           break;
         case 'file':
-          // Dans une vraie application, vous téléchargeriez le fichier sur un serveur
-          // et stockeriez l'URL ici. Pour cette démo, nous utilisons un chemin fictif.
+          if (!fileUrl) {
+            Alert.alert('Fichier manquant', "Le fichier n'a pas encore été uploadé. Veuillez sélectionner un fichier.");
+            setIsSubmitting(false);
+            return;
+          }
           break;
       }
 
@@ -289,14 +399,25 @@ export default function ResourceItemFormScreen() {
             <TouchableOpacity
               style={[
                 styles.imagePickerButton,
-                { backgroundColor: theme.card, borderColor: theme.border }
+                { backgroundColor: theme.card, borderColor: theme.border },
+                isUploadingImage && { opacity: 0.6 },
               ]}
               onPress={handlePickImage}
+              disabled={isUploadingImage}
             >
-              {image ? (
-                <View style={styles.previewContainer}>
-                  <Text style={[styles.previewText, { color: theme.text }]}>Image sélectionnée</Text>
-                  <ImageIcon size={48} color={theme.primary} />
+              {isUploadingImage ? (
+                <View style={styles.imagePlaceholder}>
+                  <ActivityIndicator size="large" color={theme.primary} />
+                  <Text style={[styles.imagePlaceholderText, { color: theme.text }]}>
+                    Upload en cours…
+                  </Text>
+                </View>
+              ) : image ? (
+                <View style={styles.imagePreviewWrapper}>
+                  <Image source={{ uri: image }} style={styles.imagePreview} resizeMode="cover" />
+                  <View style={[styles.imagePreviewOverlay, { backgroundColor: 'rgba(0,0,0,0.45)' }]}>
+                    <Text style={styles.imagePreviewOverlayText}>Appuyer pour changer</Text>
+                  </View>
                 </View>
               ) : (
                 <View style={styles.imagePlaceholder}>
@@ -316,22 +437,37 @@ export default function ResourceItemFormScreen() {
             <TouchableOpacity
               style={[
                 styles.filePickerButton,
-                { backgroundColor: theme.card, borderColor: theme.border }
+                { backgroundColor: theme.card, borderColor: theme.border },
+                isUploadingFile && { opacity: 0.6 },
               ]}
               onPress={handlePickFile}
+              disabled={isUploadingFile}
             >
-              {fileName || existingItem?.fileUrl ? (
+              {isUploadingFile ? (
                 <View style={styles.previewContainer}>
-                  <Text style={[styles.previewText, { color: theme.text }]}>
-                    {fileName || 'Fichier déjà téléchargé'}
+                  <ActivityIndicator size="small" color={theme.primary} />
+                  <Text style={[styles.previewText, { color: theme.text, marginTop: 8 }]}>
+                    Upload en cours…
                   </Text>
-                  <File size={24} color={theme.primary} />
+                </View>
+              ) : uploadedFileUrl || existingItem?.fileUrl ? (
+                <View style={styles.previewContainer}>
+                  <File size={24} color={theme.success ?? '#37b24d'} />
+                  <Text style={[styles.previewText, { color: theme.text, marginTop: 4 }]}>
+                    {fileName || 'Fichier uploadé ✓'}
+                  </Text>
+                  <Text style={[styles.helperText, { color: darkMode ? theme.inactive : '#666' }]}>
+                    Appuyer pour changer
+                  </Text>
                 </View>
               ) : (
                 <View style={styles.filePlaceholder}>
                   <Upload size={32} color={theme.primary} />
                   <Text style={[styles.filePlaceholderText, { color: theme.text }]}>
                     Sélectionner un fichier
+                  </Text>
+                  <Text style={[styles.helperText, { color: darkMode ? theme.inactive : '#666' }]}>
+                    PDF, Word, Excel, image…
                   </Text>
                 </View>
               )}
@@ -577,6 +713,29 @@ const styles = StyleSheet.create({
   previewText: {
     marginBottom: 8,
     fontSize: 16,
+  },
+  imagePreviewWrapper: {
+    width: '100%',
+    height: '100%',
+    position: 'relative',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imagePreviewOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingVertical: 8,
+    alignItems: 'center',
+  },
+  imagePreviewOverlayText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   imagePlaceholder: {
     width: '100%',

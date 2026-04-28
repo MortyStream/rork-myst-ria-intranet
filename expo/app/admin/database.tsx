@@ -163,10 +163,10 @@ export default function DatabaseScreen() {
     }
   };
   
-  if (!isAdminOrModerator) {
-    router.replace('/admin');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAdminOrModerator) router.replace('/admin');
+  }, [isAdminOrModerator]);
+  if (!isAdminOrModerator) return null;
   
   const handleTestConnection = async () => {
     setConnectionStatus('testing');
@@ -193,10 +193,6 @@ export default function DatabaseScreen() {
   
   const handleManageUsers = () => {
     router.push('/admin/users');
-  };
-  
-  const handleManageRoles = () => {
-    router.push('/admin/roles');
   };
   
   const handleManageTable = (tableName: string) => {
@@ -324,10 +320,6 @@ export default function DatabaseScreen() {
         }
       ]
     );
-  };
-  
-  const handleLogsHistory = () => {
-    router.push('/admin/logs');
   };
   
   const handleViewStats = () => {
@@ -878,21 +870,9 @@ export default function DatabaseScreen() {
               <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
             </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={handleManageRoles}
-            >
-              <View style={styles.menuItemContent}>
-                <UserCog size={20} color={appColors.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>
-                  Gérer les rôles
-                </Text>
-              </View>
-              <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
-            </TouchableOpacity>
           </View>
         </Card>
-        
+
         {/* Database Tables Card */}
         <Card style={styles.card}>
           <View style={styles.cardHeader}>
@@ -1061,18 +1041,6 @@ export default function DatabaseScreen() {
               <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
             </TouchableOpacity>
             
-            <TouchableOpacity
-              style={[styles.menuItem, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={handleLogsHistory}
-            >
-              <View style={styles.menuItemContent}>
-                <FileText size={20} color={appColors.primary} />
-                <Text style={[styles.menuItemText, { color: theme.text }]}>
-                  Journaux et historique
-                </Text>
-              </View>
-              <ChevronRight size={20} color={darkMode ? theme.inactive : '#666666'} />
-            </TouchableOpacity>
           </View>
         </Card>
       </ScrollView>

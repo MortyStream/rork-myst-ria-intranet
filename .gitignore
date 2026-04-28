@@ -1,3 +1,12 @@
 node_modules
 .env
 .expo
+.mcp.json
+
+# Claude Code session data (worktrees, transcripts)
+.claude/
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+*.log

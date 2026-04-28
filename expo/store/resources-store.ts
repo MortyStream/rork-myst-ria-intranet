@@ -2,7 +2,7 @@ import { getSupabase } from '@/utils/supabase';
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ResourceCategory, ResourceItem } from '@/types/resource';
+import { ResourceCategory, ResourceItem, ExternalLink } from '@/types/resource';
 import { v4 as uuidv4 } from 'uuid';
 
 const fetchCategoriesFromSupabase = async (): Promise<ResourceCategory[]> => {
@@ -28,9 +28,15 @@ const fetchResourceItemsFromSupabase = async (): Promise<ResourceItem[]> => {
 interface ResourcesState {
   categories: ResourceCategory[];
   resourceItems: ResourceItem[];
+  externalLinks: ExternalLink[];
   subscriptions: Record<string, string[]>;
   isLoading: boolean;
   error: string | null;
+  initializeExternalLinks: () => Promise<void>;
+  addExternalLink: (link: Omit<ExternalLink, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateExternalLink: (id: string, updates: Partial<ExternalLink>) => Promise<void>;
+  deleteExternalLink: (id: string) => Promise<void>;
+  getExternalLinkById: (id: string) => ExternalLink | undefined;
   getVisibleCategories: () => ResourceCategory[];
   getUserSubscriptions: (userId: string) => string[];
   isUserSubscribed: (userId: string, categoryId: string) => boolean;
@@ -39,12 +45,12 @@ interface ResourcesState {
   getCategoryById: (categoryId: string) => ResourceCategory | undefined;
   getResourceItemById: (itemId: string) => Promise<ResourceItem | undefined>;
   getResourceItemsByCategory: (categoryId: string, parentId?: string | null) => ResourceItem[];
-  addCategory: (category: Omit<ResourceCategory, 'id' | 'createdAt' | 'updatedAt'>) => void;
-  updateCategory: (id: string, updates: Partial<ResourceCategory>) => void;
-  deleteCategory: (id: string) => void;
-  addResourceItem: (item: Omit<ResourceItem, 'id' | 'createdAt' | 'updatedAt'>) => string;
-  updateResourceItem: (id: string, updates: Partial<ResourceItem>) => void;
-  deleteResourceItem: (id: string) => void;
+  addCategory: (category: Omit<ResourceCategory, 'id' | 'createdAt' | 'updatedAt'>) => Promise<void>;
+  updateCategory: (id: string, updates: Partial<ResourceCategory>) => Promise<void>;
+  deleteCategory: (id: string) => Promise<void>;
+  addResourceItem: (item: Omit<ResourceItem, 'id' | 'createdAt' | 'updatedAt'>) => Promise<string>;
+  updateResourceItem: (id: string, updates: Partial<ResourceItem>) => Promise<void>;
+  deleteResourceItem: (id: string) => Promise<void>;
   getCategoryMembers: (categoryId: string) => Promise<any[]>;
   addCategoryMember: (member: { userId: string; categoryId: string; role: string; }) => Promise<string>;
   updateCategoryMember: (id: string, updates: { role: string; }) => Promise<void>;
@@ -58,9 +64,66 @@ export const useResourcesStore = create<ResourcesState>()(
     (set, get) => ({
       categories: [],
       resourceItems: [],
+      externalLinks: [],
       subscriptions: {},
       isLoading: false,
       error: null,
+
+      initializeExternalLinks: async () => {
+        try {
+          const supabase = getSupabase();
+          const { data, error } = await supabase
+            .from('external_links')
+            .select('*')
+            .order('createdAt', { ascending: true });
+          if (error) throw error;
+          set({ externalLinks: data ?? [] });
+        } catch (error) {
+          console.log('Erreur chargement liens:', error);
+        }
+      },
+
+      addExternalLink: async (linkData) => {
+        const supabase = getSupabase();
+        const now = new Date().toISOString();
+        const newLink = { ...linkData, id: uuidv4(), createdAt: now, updatedAt: now };
+        // Insert d'abord dans Supabase — si ça échoue, on ne met pas à jour le store
+        const { data, error } = await supabase
+          .from('external_links')
+          .insert(newLink)
+          .select()
+          .single();
+        if (error) throw error;
+        set(state => ({ externalLinks: [...state.externalLinks, data] }));
+      },
+
+      updateExternalLink: async (id, updates) => {
+        const now = new Date().toISOString();
+        set(state => ({
+          externalLinks: state.externalLinks.map(l =>
+            l.id === id ? { ...l, ...updates, updatedAt: now } : l
+          ),
+        }));
+        try {
+          await getSupabase()
+            .from('external_links')
+            .update({ ...updates, updatedAt: now })
+            .eq('id', id);
+        } catch (error) {
+          console.log('Erreur update lien Supabase:', error);
+        }
+      },
+
+      deleteExternalLink: async (id) => {
+        set(state => ({ externalLinks: state.externalLinks.filter(l => l.id !== id) }));
+        try {
+          await getSupabase().from('external_links').delete().eq('id', id);
+        } catch (error) {
+          console.log('Erreur suppression lien Supabase:', error);
+        }
+      },
+
+      getExternalLinkById: (id) => get().externalLinks.find(l => l.id === id),
 
       initializeDefaultCategories: async () => {
         set({ isLoading: true, error: null });
@@ -165,14 +228,23 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      addCategory: (category) => {
+      addCategory: async (category) => {
         try {
+          const now = new Date().toISOString();
           const newCategory: ResourceCategory = {
             ...category,
             id: uuidv4(),
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: now,
+            updatedAt: now,
           };
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('resource_categories')
+            .insert(newCategory);
+          if (error) {
+            console.error('addCategory Supabase error:', error);
+            return;
+          }
           set(state => ({
             categories: [...state.categories, newCategory]
           }));
@@ -181,12 +253,22 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      updateCategory: (id, updates) => {
+      updateCategory: async (id, updates) => {
         try {
+          const now = new Date().toISOString();
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('resource_categories')
+            .update({ ...updates, updatedAt: now })
+            .eq('id', id);
+          if (error) {
+            console.error('updateCategory Supabase error:', error);
+            return;
+          }
           set(state => ({
             categories: state.categories.map(category =>
               category.id === id
-                ? { ...category, ...updates, updatedAt: new Date().toISOString() }
+                ? { ...category, ...updates, updatedAt: now }
                 : category
             )
           }));
@@ -195,8 +277,22 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      deleteCategory: (id) => {
+      deleteCategory: async (id) => {
         try {
+          const supabase = getSupabase();
+          const { error: err1 } = await supabase
+            .from('resource_items')
+            .delete()
+            .eq('categoryId', id);
+          if (err1) console.error('deleteCategory items Supabase error:', err1);
+          const { error: err2 } = await supabase
+            .from('resource_categories')
+            .delete()
+            .eq('id', id);
+          if (err2) {
+            console.error('deleteCategory Supabase error:', err2);
+            return;
+          }
           set(state => ({
             categories: state.categories.filter(category => category.id !== id),
             resourceItems: state.resourceItems.filter(item => item.categoryId !== id)
@@ -206,15 +302,24 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      addResourceItem: (item) => {
+      addResourceItem: async (item) => {
         try {
+          const now = new Date().toISOString();
           const newItemId = uuidv4();
           const newItem: ResourceItem = {
             ...item,
             id: newItemId,
-            createdAt: new Date().toISOString(),
-            updatedAt: new Date().toISOString(),
+            createdAt: now,
+            updatedAt: now,
           };
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('resource_items')
+            .insert(newItem);
+          if (error) {
+            console.error('addResourceItem Supabase error:', error);
+            return '';
+          }
           set(state => ({
             resourceItems: [...state.resourceItems, newItem]
           }));
@@ -225,12 +330,22 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      updateResourceItem: (id, updates) => {
+      updateResourceItem: async (id, updates) => {
         try {
+          const now = new Date().toISOString();
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('resource_items')
+            .update({ ...updates, updatedAt: now })
+            .eq('id', id);
+          if (error) {
+            console.error('updateResourceItem Supabase error:', error);
+            return;
+          }
           set(state => ({
             resourceItems: state.resourceItems.map(item =>
               item.id === id
-                ? { ...item, ...updates, updatedAt: new Date().toISOString() }
+                ? { ...item, ...updates, updatedAt: now }
                 : item
             )
           }));
@@ -239,25 +354,33 @@ export const useResourcesStore = create<ResourcesState>()(
         }
       },
 
-      deleteResourceItem: (id) => {
+      deleteResourceItem: async (id) => {
         try {
+          const supabase = getSupabase();
           const itemToDelete = get().resourceItems.find(item => item.id === id);
+          const idsToDelete: string[] = [id];
+
           if (itemToDelete && itemToDelete.type === 'folder') {
-            const deleteItemsRecursively = (parentId: string) => {
+            const collectDescendants = (parentId: string) => {
               const children = get().resourceItems.filter(item => item.parentId === parentId);
               children.forEach(child => {
-                if (child.type === 'folder') {
-                  deleteItemsRecursively(child.id);
-                }
+                idsToDelete.push(child.id);
+                if (child.type === 'folder') collectDescendants(child.id);
               });
-              set(state => ({
-                resourceItems: state.resourceItems.filter(item => item.parentId !== parentId)
-              }));
             };
-            deleteItemsRecursively(id);
+            collectDescendants(id);
+          }
+
+          const { error } = await supabase
+            .from('resource_items')
+            .delete()
+            .in('id', idsToDelete);
+          if (error) {
+            console.error('deleteResourceItem Supabase error:', error);
+            return;
           }
           set(state => ({
-            resourceItems: state.resourceItems.filter(item => item.id !== id)
+            resourceItems: state.resourceItems.filter(item => !idsToDelete.includes(item.id))
           }));
         } catch (error) {
           console.error('Error deleting resource item:', error);
@@ -266,7 +389,16 @@ export const useResourcesStore = create<ResourcesState>()(
 
       getCategoryMembers: async (categoryId: string) => {
         try {
-          return [];
+          const supabase = getSupabase();
+          const { data, error } = await supabase
+            .from('category_members')
+            .select('*')
+            .eq('categoryId', categoryId);
+          if (error) {
+            console.error('getCategoryMembers Supabase error:', error);
+            return [];
+          }
+          return data ?? [];
         } catch (error) {
           console.error('Error getting category members:', error);
           return [];
@@ -275,7 +407,17 @@ export const useResourcesStore = create<ResourcesState>()(
 
       addCategoryMember: async (member) => {
         try {
-          return "member-id";
+          const id = uuidv4();
+          const now = new Date().toISOString();
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('category_members')
+            .insert({ id, ...member, createdAt: now, updatedAt: now });
+          if (error) {
+            console.error('addCategoryMember Supabase error:', error);
+            throw error;
+          }
+          return id;
         } catch (error) {
           console.error('Error adding category member:', error);
           throw error;
@@ -284,6 +426,15 @@ export const useResourcesStore = create<ResourcesState>()(
 
       updateCategoryMember: async (id, updates) => {
         try {
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('category_members')
+            .update({ ...updates, updatedAt: new Date().toISOString() })
+            .eq('id', id);
+          if (error) {
+            console.error('updateCategoryMember Supabase error:', error);
+            throw error;
+          }
         } catch (error) {
           console.error('Error updating category member:', error);
           throw error;
@@ -292,6 +443,15 @@ export const useResourcesStore = create<ResourcesState>()(
 
       deleteCategoryMember: async (id) => {
         try {
+          const supabase = getSupabase();
+          const { error } = await supabase
+            .from('category_members')
+            .delete()
+            .eq('id', id);
+          if (error) {
+            console.error('deleteCategoryMember Supabase error:', error);
+            throw error;
+          }
         } catch (error) {
           console.error('Error deleting category member:', error);
           throw error;
@@ -313,6 +473,7 @@ export const useResourcesStore = create<ResourcesState>()(
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({
         subscriptions: state.subscriptions,
+        externalLinks: state.externalLinks,
       }),
     }
   )

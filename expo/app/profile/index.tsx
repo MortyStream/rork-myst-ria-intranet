@@ -21,7 +21,6 @@ import { Card } from '@/components/Card';
 import { Badge } from '@/components/Badge';
 import { ListItem } from '@/components/ListItem';
 import { Divider } from '@/components/Divider';
-import { AppLayout } from '@/components/AppLayout';
 import { User as UserType } from '@/types/user';
 
 export default function ProfileScreen() {
@@ -101,30 +100,29 @@ export default function ProfileScreen() {
   
   if (!user) {
     return (
-      <AppLayout hideMenuButton={true}>
-        <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-          <Header title="Profil" />
-          <View style={styles.notLoggedInContainer}>
-            <Text style={[styles.notLoggedInText, { color: theme.text }]}>
-              Vous devez être connecté pour accéder à votre profil.
-            </Text>
-          </View>
-        </SafeAreaView>
-      </AppLayout>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+        <Header title="Profil" showBackButton={true} onBackPress={() => router.back()} />
+        <View style={styles.notLoggedInContainer}>
+          <Text style={[styles.notLoggedInText, { color: theme.text }]}>
+            Vous devez être connecté pour accéder à votre profil.
+          </Text>
+        </View>
+      </SafeAreaView>
     );
   }
   
   return (
-    <AppLayout hideMenuButton={true}>
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
-        <Header 
-          title="Mon profil" 
-          rightComponent={
-            <TouchableOpacity onPress={handleSettings} style={styles.settingsButton}>
-              <Settings size={24} color={theme.text} />
-            </TouchableOpacity>
-          }
-        />
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
+      <Header
+        title="Mon profil"
+        showBackButton={true}
+        onBackPress={() => router.back()}
+        rightComponent={
+          <TouchableOpacity onPress={handleSettings} style={styles.settingsButton}>
+            <Settings size={24} color={theme.text} />
+          </TouchableOpacity>
+        }
+      />
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <View style={styles.profileHeader}>
             <Avatar
@@ -280,8 +278,7 @@ export default function ProfileScreen() {
             </Card>
           )}
         </ScrollView>
-      </SafeAreaView>
-    </AppLayout>
+    </SafeAreaView>
   );
 }
 

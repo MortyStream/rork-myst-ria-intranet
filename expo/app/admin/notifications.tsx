@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -45,10 +45,10 @@ export default function AdminNotificationsScreen() {
   // Vérifier si l'utilisateur est admin ou modérateur
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
-  if (!isAdminOrModerator) {
-    router.replace('/admin');
-    return null;
-  }
+  useEffect(() => {
+    if (!isAdminOrModerator) router.replace('/admin');
+  }, [isAdminOrModerator]);
+  if (!isAdminOrModerator) return null;
   
   const toggleRole = (role: string) => {
     if (selectedRoles.includes(role)) {

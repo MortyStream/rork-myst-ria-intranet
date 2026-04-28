@@ -44,44 +44,38 @@ export default function LinkFormScreen() {
   const [type, setType] = useState<ExternalLinkType>(existingLink?.type || 'website');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!title || !url) {
       Alert.alert('Champs obligatoires', 'Veuillez remplir le titre et l\'URL.');
       return;
     }
 
-    // Vérifier si l'URL est valide
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      setUrl(`https://${url}`);
-    }
+    const finalUrl = (!url.startsWith('http://') && !url.startsWith('https://'))
+      ? `https://${url}`
+      : url;
 
     setIsSubmitting(true);
 
     try {
       if (existingLink) {
-        // Mise à jour d'un lien existant
-        updateExternalLink(existingLink.id, {
+        await updateExternalLink(existingLink.id, {
           title,
-          url,
+          url: finalUrl,
           description,
           type,
         });
-        Alert.alert('Succès', 'Lien mis à jour avec succès.');
       } else {
-        // Création d'un nouveau lien
-        addExternalLink({
+        await addExternalLink({
           title,
-          url,
+          url: finalUrl,
           description,
           type,
         });
-        Alert.alert('Succès', 'Lien ajouté avec succès.');
       }
-      
       router.back();
     } catch (error) {
       console.error('Error saving link:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'enregistrement.');
+      Alert.alert('Erreur', 'Impossible d\'enregistrer le lien. Vérifiez votre connexion.');
     } finally {
       setIsSubmitting(false);
     }

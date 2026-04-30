@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '@/types/user';
-import { getSupabase, reinitializeSupabase } from '@/utils/supabase';
+import { getSupabase } from '@/utils/supabase';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
@@ -105,30 +105,34 @@ export const useUsersStore = create<UsersState>()(
       initializeUsers: async () => {
         set({ isLoading: true, error: null });
 
-        try {
-          console.log('Initializing users store...');
-          const transformedUsers = await fetchUsersFromSupabase();
-          console.log('Users fetched successfully:', transformedUsers.length);
-          set({ users: transformedUsers, isLoading: false, error: null });
-        } catch (initialError: unknown) {
-          console.error('Error fetching users on first attempt:', getErrorMessage(initialError));
-
+        // Retry simple sans réinitialiser le client Supabase global.
+        // L'ancien code appelait reinitializeSupabase() qui créait un NOUVEAU
+        // client singleton sans session → cassait toutes les autres requêtes
+        // en cours (calendar, tasks, etc.) → toutes les pages vides.
+        const MAX_ATTEMPTS = 3;
+        for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
           try {
-            console.log('Reinitializing Supabase client before retrying users fetch...');
-            reinitializeSupabase();
+            console.log(`Initializing users store (attempt ${attempt}/${MAX_ATTEMPTS})...`);
             const transformedUsers = await fetchUsersFromSupabase();
-            console.log('Users fetched successfully after retry:', transformedUsers.length);
+            console.log('Users fetched successfully:', transformedUsers.length);
             set({ users: transformedUsers, isLoading: false, error: null });
-          } catch (retryError: unknown) {
-            const existingUsers = get().users;
-            const friendlyMessage = getFriendlyUsersErrorMessage(retryError);
-
-            console.error('Error initializing users after retry:', getErrorMessage(retryError));
-            set({
-              users: existingUsers,
-              error: friendlyMessage,
-              isLoading: false,
-            });
+            return;
+          } catch (err: unknown) {
+            console.log(`Users fetch attempt ${attempt} failed:`, getErrorMessage(err));
+            if (attempt < MAX_ATTEMPTS) {
+              // Backoff progressif : 200ms, 400ms — laisse le temps au JWT
+              // de se propager après un signInWithPassword.
+              await new Promise<void>((resolve) => setTimeout(resolve, 200 * attempt));
+            } else {
+              const existingUsers = get().users;
+              const friendlyMessage = getFriendlyUsersErrorMessage(err);
+              console.error('Error initializing users after all retries:', getErrorMessage(err));
+              set({
+                users: existingUsers,
+                error: friendlyMessage,
+                isLoading: false,
+              });
+            }
           }
         }
       },

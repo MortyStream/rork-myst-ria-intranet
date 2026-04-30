@@ -1,13 +1,15 @@
-import React, { useState } from 'react';
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity, 
+import React, { useState, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
   ScrollView,
   TextInput,
   Alert,
-  Modal
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Task, TaskComment } from '@/types/task';
 import { Colors } from '@/constants/colors';
@@ -189,6 +191,8 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
     }
   };
   
+  const scrollViewRef = useRef<ScrollView>(null);
+
   return (
     <Modal
       animationType="slide"
@@ -196,10 +200,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
       visible={true}
       onRequestClose={onClose}
     >
-      <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
+      <KeyboardAvoidingView
+        style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
         <View style={[
-          styles.modalContent, 
-          { 
+          styles.modalContent,
+          {
             backgroundColor: theme.background,
             borderTopColor: getPriorityColor(),
             borderTopWidth: 4,
@@ -214,7 +221,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
             </TouchableOpacity>
           </View>
           
-          <ScrollView style={styles.scrollView}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.scrollView}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={{ paddingBottom: 20 }}
+          >
             <View style={styles.section}>
               <View style={[
                 styles.statusBadge, 
@@ -421,7 +433,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                   <TextInput
                     style={[
                       styles.commentInput,
-                      { 
+                      {
                         color: theme.text,
                         backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                         borderColor: theme.border,
@@ -431,6 +443,10 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                     placeholderTextColor={darkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)'}
                     value={newComment}
                     onChangeText={setNewComment}
+                    onFocus={() => {
+                      // Scroll vers le bas après un délai pour laisser le clavier s'ouvrir
+                      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 250);
+                    }}
                     multiline
                   />
                   <TouchableOpacity 
@@ -449,7 +465,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
             </View>
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 };

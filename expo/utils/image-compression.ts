@@ -1,5 +1,38 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 
+/**
+ * Sanitize un nom de fichier pour Supabase Storage.
+ * Supabase rejette les keys avec espaces, accents, et certains caractères spéciaux.
+ * Cette fonction :
+ *  - Retire les accents (NFD + remove combining marks)
+ *  - Remplace tout caractère non [A-Za-z0-9._-] par _
+ *  - Limite à 100 caractères
+ *  - Préserve l'extension (.pdf, .jpg, etc.)
+ *
+ * Ex: "26.04.15_PV Réunion Mystéria signé.pdf" → "26.04.15_PV_Reunion_Mysteria_signe.pdf"
+ */
+export function sanitizeFilename(filename: string): string {
+  const lastDot = filename.lastIndexOf('.');
+  const ext = lastDot > 0 ? filename.substring(lastDot) : '';
+  const name = lastDot > 0 ? filename.substring(0, lastDot) : filename;
+
+  const cleanName = name
+    .normalize('NFD')                       // sépare accents
+    .replace(/[̀-ͯ]/g, '')        // retire accents
+    .replace(/[^A-Za-z0-9._-]/g, '_')       // remplace tout autre caractère
+    .replace(/_+/g, '_')                    // dédoublonne les _
+    .replace(/^_|_$/g, '')                  // trim _ aux extrémités
+    .substring(0, 100);                     // limite la longueur
+
+  const cleanExt = ext
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^A-Za-z0-9.]/g, '')
+    .toLowerCase();
+
+  return cleanName + cleanExt || 'file';
+}
+
 interface CompressOptions {
   /** Largeur max en pixels (l'image est redimensionnée en gardant le ratio). Par défaut 1024. */
   maxWidth?: number;

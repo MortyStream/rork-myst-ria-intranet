@@ -34,24 +34,31 @@ export const useNotificationsStore = create<NotificationsStore>()(
       error: null,
 
       initializeNotifications: async () => {
-        try {
-          const supabase = getSupabase();
-          const { data, error } = await supabase
-            .from('notifications')
-            .select('*')
-            .order('createdAt', { ascending: false });
-          if (error) throw error;
-          if (!data || data.length === 0) return;
-          set(state => {
-            const localReadMap = new Map(state.notifications.map(n => [n.id, n.read]));
-            const merged = data.map((n: Notification) => ({
-              ...n,
-              read: localReadMap.get(n.id) ?? false,
-            }));
-            return { notifications: merged };
-          });
-        } catch (error) {
-          console.log('Erreur chargement notifications:', error);
+        const supabase = getSupabase();
+        // Retry x3 avec backoff pour absorber le timing JWT post-login
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const { data, error } = await supabase
+              .from('notifications')
+              .select('*')
+              .order('createdAt', { ascending: false });
+            if (error) throw error;
+            if (!data || data.length === 0) return;
+            set(state => {
+              const localReadMap = new Map(state.notifications.map(n => [n.id, n.read]));
+              const merged = data.map((n: Notification) => ({
+                ...n,
+                read: localReadMap.get(n.id) ?? false,
+              }));
+              return { notifications: merged };
+            });
+            return;
+          } catch (error) {
+            console.log(`Erreur chargement notifications (tentative ${attempt}):`, error);
+            if (attempt < 3) {
+              await new Promise<void>((r) => setTimeout(r, 200 * attempt));
+            }
+          }
         }
       },
 

@@ -70,16 +70,22 @@ export const useResourcesStore = create<ResourcesState>()(
       error: null,
 
       initializeExternalLinks: async () => {
-        try {
-          const supabase = getSupabase();
-          const { data, error } = await supabase
-            .from('external_links')
-            .select('*')
-            .order('createdAt', { ascending: true });
-          if (error) throw error;
-          set({ externalLinks: data ?? [] });
-        } catch (error) {
-          console.log('Erreur chargement liens:', error);
+        const supabase = getSupabase();
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const { data, error } = await supabase
+              .from('external_links')
+              .select('*')
+              .order('createdAt', { ascending: true });
+            if (error) throw error;
+            set({ externalLinks: data ?? [] });
+            return;
+          } catch (error) {
+            console.log(`Erreur chargement liens (tentative ${attempt}):`, error);
+            if (attempt < 3) {
+              await new Promise<void>((r) => setTimeout(r, 200 * attempt));
+            }
+          }
         }
       },
 
@@ -127,17 +133,24 @@ export const useResourcesStore = create<ResourcesState>()(
 
       initializeDefaultCategories: async () => {
         set({ isLoading: true, error: null });
-        try {
-          const categories = await fetchCategoriesFromSupabase();
-          const resourceItems = await fetchResourceItemsFromSupabase();
-          if (categories.length > 0) {
-            set({ categories, resourceItems, isLoading: false });
-          } else {
-            set({ isLoading: false });
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const categories = await fetchCategoriesFromSupabase();
+            const resourceItems = await fetchResourceItemsFromSupabase();
+            if (categories.length > 0) {
+              set({ categories, resourceItems, isLoading: false });
+            } else {
+              set({ isLoading: false });
+            }
+            return;
+          } catch (error) {
+            console.log(`Erreur chargement ressources (tentative ${attempt}):`, error);
+            if (attempt < 3) {
+              await new Promise<void>((r) => setTimeout(r, 200 * attempt));
+            } else {
+              set({ isLoading: false });
+            }
           }
-        } catch (error) {
-          console.log('Erreur chargement ressources:', error);
-          set({ isLoading: false });
         }
       },
 
@@ -306,9 +319,18 @@ export const useResourcesStore = create<ResourcesState>()(
         try {
           const now = new Date().toISOString();
           const newItemId = uuidv4();
+          // Sanitize les UUIDs : convertir "" en null pour ne pas faire péter
+          // Postgres ("invalid input syntax for type uuid: '\"\"'").
+          const sanitizeUuid = (val: any): string | null => {
+            if (val === '' || val === undefined || val === null) return null;
+            return val;
+          };
           const newItem: ResourceItem = {
             ...item,
             id: newItemId,
+            parentId: sanitizeUuid(item.parentId) as any,
+            categoryId: sanitizeUuid(item.categoryId) as any,
+            createdBy: sanitizeUuid(item.createdBy) as any,
             createdAt: now,
             updatedAt: now,
           };

@@ -3,7 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { User, AuthState } from '@/types/user';
-import { getSupabase, syncUserWithSupabase } from '@/utils/supabase';
+import { getSupabase, syncUserWithSupabase, cacheAccessToken } from '@/utils/supabase';
 import { unregisterPushToken } from '@/utils/push-notifications';
 
 // SÉCURITÉ : aucun "PREVIEW_USER" admin auto-loggué.
@@ -221,108 +221,68 @@ export const useAuthStore = create<AuthStore>()(
       
       // New function to link user profile with Supabase auth user
       linkUserProfileWithSupabaseAuth: async (authUserId, userEmail) => {
-        console.log(`Linking user profile with Supabase auth user: ${authUserId}, email: ${userEmail}`);
-        
+        // Best-effort : tente de lier la row `users` existante (créée par un admin)
+        // au nouveau auth.uid() Supabase. Si on ne trouve rien, on n'INSERT PAS
+        // de nouveau profil (les profils sont créés exclusivement par les admins).
+        // Le fallback dans login() gère le cas "trouvé par email mais pas lié".
+        console.log(`Linking user profile with Supabase auth: ${authUserId}, email: ${userEmail}`);
+
         try {
           const supabase = getSupabase();
-          
-          // First, check if there's already a user profile with this email
-          const { data: existingUser, error: findError } = await supabase
+
+          // 1. Cherche par supabaseUserId — si déjà lié, on est bon
+          const { data: byAuthId } = await supabase
             .from('users')
-            .select('*')
-            .eq('email', userEmail)
-            .single();
-          
-          if (findError && findError.code !== 'PGRST116') { // Not found is ok
-            console.error('Error finding user profile:', findError);
-            console.error('Full error object:', JSON.stringify(findError, null, 2));
+            .select('id, supabaseUserId')
+            .eq('supabaseUserId', authUserId)
+            .maybeSingle();
+
+          if (byAuthId) {
+            console.log('User profile already linked');
+            return true;
+          }
+
+          // 2. Sinon, cherche par email (case-insensitive)
+          const { data: byEmail, error: emailErr } = await supabase
+            .from('users')
+            .select('id, supabaseUserId')
+            .ilike('email', userEmail)
+            .maybeSingle();
+
+          if (emailErr) {
+            // Probablement un échec RLS (JWT pas encore propagé). Pas grave,
+            // le fallback dans login() retentera après que la session soit settled.
+            console.log('linkUserProfile: lookup par email a échoué (non-bloquant):', emailErr.message);
             return false;
           }
-          
-          if (existingUser) {
-            // User profile exists, check if it already has a supabaseUserId
-            if (existingUser.supabaseUserId === authUserId) {
-              console.log('User profile already linked to this auth user');
-              return true;
-            }
-            
-            // Update the user profile with the auth user ID
-            const { error: updateError } = await supabase
-              .from('users')
-              .update({ 
-                supabaseUserId: authUserId,
-                updatedAt: new Date().toISOString()
-              })
-              .eq('id', existingUser.id);
-            
-            if (updateError) {
-              console.error('Error updating user profile with auth ID:', updateError);
-              console.error('Full error object:', JSON.stringify(updateError, null, 2));
-              return false;
-            }
-            
-            console.log('User profile successfully linked to auth user');
-            return true;
-          } else {
-            // No user profile found with this email, check directory_profiles
-            const { data: directoryProfile, error: directoryError } = await supabase
-              .from('directory_profiles')
-              .select('*')
-              .eq('email', userEmail)
-              .single();
-            
-            if (directoryError && directoryError.code !== 'PGRST116') { // Not found is ok
-              console.error('Error finding directory profile:', directoryError);
-              console.error('Full error object:', JSON.stringify(directoryError, null, 2));
-            }
-            
-            if (directoryProfile) {
-              // Directory profile exists, update it with the auth user ID
-              const { error: updateDirError } = await supabase
-                .from('directory_profiles')
-                .update({ 
-                  supabaseUserId: authUserId,
-                  updatedAt: new Date().toISOString()
-                })
-                .eq('id', directoryProfile.id);
-              
-              if (updateDirError) {
-                console.error('Error updating directory profile with auth ID:', updateDirError);
-                console.error('Full error object:', JSON.stringify(updateDirError, null, 2));
-                return false;
-              }
-              
-              console.log('Directory profile successfully linked to auth user');
-              return true;
-            }
-            
-            // No profile found at all, create a new one in users table
-            const now = new Date().toISOString();
-            
-            const { error: createError } = await supabase
-              .from('users')
-              .insert({
-                id: authUserId, // Use the auth user ID as the profile ID
-                email: userEmail,
-                supabaseUserId: authUserId,
-                role: 'user', // Default role for new users
-                createdAt: now,
-                updatedAt: now,
-                isActive: true
-              });
-            
-            if (createError) {
-              console.error('Error creating new user profile:', createError);
-              console.error('Full error object:', JSON.stringify(createError, null, 2));
-              return false;
-            }
-            
-            console.log('New user profile created and linked to auth user');
-            return true;
+
+          if (!byEmail) {
+            console.log('linkUserProfile: aucun profil trouvé pour cet email — un admin doit créer le compte.');
+            return false;
           }
-        } catch (error) {
-          console.error('Error linking user profile with auth user:', error);
-          console.error('Full error object:', JSON.stringify(error, null, 2));
+
+          if (byEmail.supabaseUserId === authUserId) {
+            return true; // Déjà lié, ne rien faire
+          }
+
+          // 3. Lie la row à l'auth user (la policy "first link" autorise ça si supabaseUserId IS NULL)
+          const { error: updateErr } = await supabase
+            .from('users')
+            .update({
+              supabaseUserId: authUserId,
+              updatedAt: new Date().toISOString(),
+            })
+            .eq('id', byEmail.id);
+
+          if (updateErr) {
+            console.log('linkUserProfile: update échoué (non-bloquant):', updateErr.message);
+            return false;
+          }
+
+          console.log('User profile linked successfully');
+          return true;
+        } catch (error: any) {
+          console.log('linkUserProfile: exception (non-bloquant):', error?.message ?? error);
           return false;
         }
       },
@@ -778,75 +738,82 @@ export const useAuthStore = create<AuthStore>()(
           
           if (data.session && data.user) {
             console.log('Login successful');
-            
+
             // Store credentials for auto-login after refresh
             get().setStoredCredentials({ username, password });
-            
-            // Link the auth user with a user profile
+
+            // CRITIQUE : 1) cacher le token en mémoire DANS le client Supabase
+            // (synchrone, garanti) 2) appeler setSession() pour update GoTrueClient.
+            // Le cache mémoire est lu en priorité par le fetch wrapper, donc même
+            // si getSession() est en retard, les requêtes partent avec le bon JWT.
+            if (data.session?.access_token) {
+              cacheAccessToken(data.session.access_token);
+            }
+            try {
+              if (data.session?.access_token && data.session?.refresh_token) {
+                await supabase.auth.setSession({
+                  access_token: data.session.access_token,
+                  refresh_token: data.session.refresh_token,
+                });
+              }
+            } catch (e) {
+              console.log('setSession warmup error (ignored):', e);
+            }
+
+            // Helper : retry un fetch jusqu'à 3x avec backoff (pour absorber un éventuel
+            // retard de propagation du JWT dans le client custom Supabase).
+            const fetchProfileWithRetry = async (
+              field: 'supabaseUserId' | 'email',
+              value: string,
+              attempts = 3
+            ): Promise<any> => {
+              for (let i = 0; i < attempts; i++) {
+                const { data: row, error } = await supabase
+                  .from('users')
+                  .select('*')
+                  .eq(field, value)
+                  .maybeSingle();
+                if (row) return row;
+                if (error && error.code !== 'PGRST116') {
+                  console.log(`fetchProfile by ${field} attempt ${i + 1} failed:`, error.message);
+                }
+                if (i < attempts - 1) {
+                  await new Promise<void>((r) => setTimeout(r, 200 * (i + 1)));
+                }
+              }
+              return null;
+            };
+
+            // Link the auth user with a user profile (best-effort, non-bloquant)
             await get().linkUserProfileWithSupabaseAuth(data.user.id, data.user.email || email);
-            
-            // Sync the auth user with the users table
+
+            // Sync the auth user with the users table (best-effort, non-bloquant)
             const syncResult = await syncUserWithSupabase(data.user);
-            
             if (!syncResult.success) {
-              console.error('Error syncing user with Supabase:', syncResult.error);
-              console.error('Error details:', syncResult.details);
-              console.error('Error hint:', syncResult.hint);
-              console.error('Full error:', syncResult.fullError);
-              
-              // Set the error message with more details but continue with login
-              set({ 
-                error: `Warning: Error syncing user profile: ${syncResult.error}${syncResult.hint ? ` (Hint: ${syncResult.hint})` : ''}` 
-              });
+              console.log('syncUserWithSupabase non-bloquant:', syncResult.error);
             }
-            
-            // CRITICAL: Always fetch fresh user data from the database after login
+
+            // Fetch profile : par supabaseUserId d'abord, fallback email
             console.log('Fetching fresh user profile data after login...');
-            const { data: profileData, error: profileError } = await supabase
-              .from('users')
-              .select('*')
-              .eq('supabaseUserId', data.user.id)
-              .single();
-            
-            if (profileError && profileError.code !== 'PGRST116') { // Not found is ok
-              console.error('Error getting user profile by supabaseUserId:', profileError);
-              console.error('Full error object:', JSON.stringify(profileError, null, 2));
-            }
-            
-            // If no profile found by supabaseUserId, try to find by email
-            let profile = profileData;
-            
+            let profile = await fetchProfileWithRetry('supabaseUserId', data.user.id);
+
             if (!profile) {
               console.log('Profile not found by supabaseUserId, trying email...');
-              const { data: emailProfileData, error: emailProfileError } = await supabase
-                .from('users')
-                .select('*')
-                .eq('email', data.user.email)
-                .single();
-              
-              if (emailProfileError && emailProfileError.code !== 'PGRST116') { // Not found is ok
-                console.error('Error getting user profile by email:', emailProfileError);
-                console.error('Full error object:', JSON.stringify(emailProfileError, null, 2));
-              } else {
-                profile = emailProfileData;
-                
-                // If found by email but supabaseUserId is not set, update it
-                if (profile && !profile.supabaseUserId) {
-                  const { error: updateError } = await supabase
-                    .from('users')
-                    .update({ 
-                      supabaseUserId: data.user.id,
-                      updatedAt: new Date().toISOString()
-                    })
-                    .eq('id', profile.id);
-                  
-                  if (updateError) {
-                    console.error('Error updating user profile with supabaseUserId:', updateError);
-                    console.error('Full error object:', JSON.stringify(updateError, null, 2));
-                  } else {
-                    console.log('Updated user profile with supabaseUserId');
-                    profile.supabaseUserId = data.user.id;
-                  }
+              profile = await fetchProfileWithRetry('email', data.user.email || '');
+
+              // Si trouvé par email mais pas encore lié, on lie maintenant
+              if (profile && !profile.supabaseUserId) {
+                const { error: updateError } = await supabase
+                  .from('users')
+                  .update({
+                    supabaseUserId: data.user.id,
+                    updatedAt: new Date().toISOString(),
+                  })
+                  .eq('id', profile.id);
+                if (updateError) {
+                  console.log('Update supabaseUserId échoué (non-bloquant):', updateError.message);
+                } else {
+                  profile.supabaseUserId = data.user.id;
                 }
               }
             }
@@ -885,48 +852,16 @@ export const useAuthStore = create<AuthStore>()(
             
             console.log('User logged in with role:', user.role);
             
-            // If no profile exists, create one
+            // Note : si aucun profil n'a été trouvé (ni par supabaseUserId, ni par email),
+            // on NE crée PAS de profil ici. Les profils utilisateurs sont gérés par les
+            // admins via le panneau d'administration — l'auto-création au login ouvrirait
+            // une faille (n'importe qui pourrait s'inscrire). Si profile est null, l'app
+            // utilisera les données auth user_metadata en fallback (déjà géré ci-dessus).
             if (!profile) {
-              try {
-                const now = new Date().toISOString();
-                
-                const insertData = {
-                  id: user.id,
-                  email: user.email,
-                  firstName: user.firstName,
-                  lastName: user.lastName,
-                  role: user.role, // Use the role from metadata or default
-                  supabaseUserId: data.user.id, // Set the Supabase auth user ID
-                  createdAt: now,
-                  updatedAt: now
-                };
-                
-                console.log("Creating new user profile with data:", JSON.stringify(insertData, null, 2));
-                
-                const { data: newProfile, error: insertError } = await supabase
-                  .from('users')
-                  .insert(insertData)
-                  .select()
-                  .single();
-                
-                if (insertError) {
-                  console.error('Error creating user profile:', insertError);
-                  console.error('Full error object:', JSON.stringify(insertError, null, 2));
-                  console.error('Error details:', insertError.details, "Error hint:", insertError.hint);
-                } else {
-                  console.log('Created new user profile');
-                  // Update the user object with the new profile data
-                  if (newProfile) {
-                    user.id = newProfile.id;
-                    user.profileImage = newProfile.avatarUrl;
-                  }
-                }
-              } catch (createError) {
-                console.error('Error creating user profile:', createError);
-                console.error('Full error object:', JSON.stringify(createError, null, 2));
-              }
+              console.log('Aucun profil DB trouvé — utilisation des données auth_metadata. Un admin doit créer le profil.');
             }
-            
+
+
             set({ 
               user, 
               isAuthenticated: true, 
@@ -960,6 +895,10 @@ export const useAuthStore = create<AuthStore>()(
           if (currentUser && currentUser.id !== 'preview-user') {
             unregisterPushToken(currentUser.id);
           }
+
+          // Clear le cache du JWT — sinon le fetch wrapper continuerait
+          // d'utiliser l'ancien token jusqu'à expiration
+          cacheAccessToken(null);
 
           // Sign out from Supabase
           const supabase = getSupabase();

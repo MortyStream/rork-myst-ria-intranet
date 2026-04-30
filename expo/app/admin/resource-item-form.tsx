@@ -63,7 +63,10 @@ export default function ResourceItemFormScreen() {
   const theme = darkMode ? Colors.dark : Colors.light;
 
   const categoryId = params.categoryId as string;
-  const parentId = params.parentId as string | null;
+  // expo-router passe parfois des params vides comme "" — convertir en null
+  // pour ne pas faire péter l'INSERT Postgres (uuid invalid syntax: "").
+  const rawParentId = params.parentId as string | null | undefined;
+  const parentId = rawParentId && rawParentId !== '' ? rawParentId : null;
   const itemId = params.id as string | undefined;
   
   const [existingItem, setExistingItem] = useState<any>(undefined);
@@ -209,12 +212,15 @@ export default function ResourceItemFormScreen() {
       setIsUploadingFile(true);
       try {
         const { getSupabase } = await import('@/utils/supabase');
+        const { sanitizeFilename } = await import('@/utils/image-compression');
         const supabase = getSupabase();
 
         const response = await fetch(asset.uri);
         const arrayBuffer = await response.arrayBuffer();
-        const ext = asset.name.split('.').pop() ?? 'bin';
-        const uploadPath = `${categoryId ?? 'misc'}/${Date.now()}-${asset.name}`;
+        // Supabase Storage rejette les keys avec espaces/accents/caractères spéciaux.
+        // sanitizeFilename normalise tout pour éviter "InvalidKey".
+        const safeName = sanitizeFilename(asset.name);
+        const uploadPath = `${categoryId ?? 'misc'}/${Date.now()}-${safeName}`;
 
         const { data: uploadData, error: uploadError } = await supabase.storage
           .from('resources')
@@ -223,16 +229,28 @@ export default function ResourceItemFormScreen() {
             upsert: false,
           });
 
-        if (uploadError) throw uploadError;
+        if (uploadError) {
+          console.error('File upload error full:', JSON.stringify(uploadError));
+          throw uploadError;
+        }
 
         const { data: urlData } = supabase.storage
           .from('resources')
           .getPublicUrl(uploadPath);
 
         setUploadedFileUrl(urlData?.publicUrl ?? null);
-      } catch (uploadErr) {
+      } catch (uploadErr: any) {
         console.error('File upload error:', uploadErr);
-        Alert.alert('Erreur upload', "Le fichier a été sélectionné mais n'a pas pu être uploadé. Vérifiez votre connexion.");
+        const msg = uploadErr?.message || uploadErr?.error || JSON.stringify(uploadErr);
+        const statusCode = uploadErr?.statusCode;
+        Alert.alert(
+          'Erreur upload',
+          statusCode === 403 || statusCode === '403'
+            ? "Permissions insuffisantes. Reconnecte-toi et réessaie."
+            : statusCode === 401 || statusCode === '401'
+              ? "Session expirée. Reconnecte-toi et réessaie."
+              : `Le fichier n'a pas pu être uploadé.\n\nDétails : ${msg}`
+        );
       } finally {
         setIsUploadingFile(false);
       }

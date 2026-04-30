@@ -52,12 +52,21 @@ export const useTasksStore = create<TasksStore>()(
 
       initializeTasks: async () => {
         set({ isLoading: true, error: null });
-        try {
-          const tasks = await fetchTasksFromSupabase();
-          set({ tasks, isLoading: false });
-        } catch (error) {
-          console.log('Erreur chargement tâches:', error);
-          set({ isLoading: false });
+        // Retry x3 avec backoff pour absorber un éventuel délai de propagation
+        // du JWT après login (sinon RLS rejette → liste vide).
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const tasks = await fetchTasksFromSupabase();
+            set({ tasks, isLoading: false });
+            return;
+          } catch (error) {
+            console.log(`Erreur chargement tâches (tentative ${attempt}):`, error);
+            if (attempt < 3) {
+              await new Promise<void>((r) => setTimeout(r, 200 * attempt));
+            } else {
+              set({ isLoading: false });
+            }
+          }
         }
       },
 
@@ -118,9 +127,24 @@ export const useTasksStore = create<TasksStore>()(
 
       updateTaskStatus: async (id, status) => {
         const supabase = getSupabase();
+        const now = new Date().toISOString();
+        const currentUser = useAuthStore.getState().user;
+
+        // Si on passe à completed/validated, on enregistre QUI a marqué fait + QUAND.
+        // Si on revient à pending/in_progress, on efface ces champs (la tâche redevient active).
+        const isFinishing = status === 'completed' || status === 'validated';
+        const updateFields: Record<string, any> = { status, updatedAt: now };
+        if (isFinishing) {
+          updateFields.completedAt = now;
+          if (currentUser?.id) updateFields.completedBy = currentUser.id;
+        } else {
+          updateFields.completedAt = null;
+          updateFields.completedBy = null;
+        }
+
         const { data, error } = await supabase
           .from('tasks')
-          .update({ status, updatedAt: new Date().toISOString() })
+          .update(updateFields)
           .eq('id', id)
           .select()
           .single();
@@ -132,9 +156,16 @@ export const useTasksStore = create<TasksStore>()(
 
       validateTask: async (id, validatorId) => {
         const supabase = getSupabase();
+        const now = new Date().toISOString();
         const { data, error } = await supabase
           .from('tasks')
-          .update({ status: 'validated', validatedBy: validatorId, updatedAt: new Date().toISOString() })
+          .update({
+            status: 'validated',
+            validatedBy: validatorId,
+            completedAt: now,
+            completedBy: validatorId,
+            updatedAt: now,
+          })
           .eq('id', id)
           .select()
           .single();

@@ -49,12 +49,19 @@ export const useCalendarStore = create<CalendarStore>()(
 
       initializeEvents: async () => {
         set({ isLoading: true, error: null });
-        try {
-          const events = await fetchEventsFromSupabase();
-          set({ events, isLoading: false });
-        } catch (error) {
-          console.log('Erreur chargement événements:', error);
-          set({ isLoading: false });
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const events = await fetchEventsFromSupabase();
+            set({ events, isLoading: false });
+            return;
+          } catch (error) {
+            console.log(`Erreur chargement événements (tentative ${attempt}):`, error);
+            if (attempt < 3) {
+              await new Promise<void>((r) => setTimeout(r, 200 * attempt));
+            } else {
+              set({ isLoading: false });
+            }
+          }
         }
       },
 

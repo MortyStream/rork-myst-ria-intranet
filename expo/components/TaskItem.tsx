@@ -116,12 +116,12 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
   
   const formatDeadline = () => {
     if (!task.deadline) return 'Pas de date limite';
-    
+
     const deadlineDate = new Date(task.deadline);
     const now = new Date();
     const diffTime = deadlineDate.getTime() - now.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+
     if (diffDays < 0) {
       return `En retard de ${Math.abs(diffDays)} jour${Math.abs(diffDays) > 1 ? 's' : ''}`;
     } else if (diffDays === 0) {
@@ -132,6 +132,30 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
       return `Dans ${diffDays} jours`;
     }
   };
+
+  /**
+   * Format "il y a X" pour la complétion : "à l'instant", "il y a 5 min",
+   * "il y a 2h", "hier", "il y a 3 jours", ou date complète au-delà.
+   */
+  const formatCompletedAgo = (completedAt: string): string => {
+    const completed = new Date(completedAt);
+    const now = new Date();
+    const diffMs = now.getTime() - completed.getTime();
+    const diffMin = Math.floor(diffMs / (1000 * 60));
+    const diffHours = Math.floor(diffMin / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMin < 1) return 'à l\'instant';
+    if (diffMin < 60) return `il y a ${diffMin} min`;
+    if (diffHours < 24) return `il y a ${diffHours}h`;
+    if (diffDays === 1) return 'hier';
+    if (diffDays < 7) return `il y a ${diffDays} jours`;
+    return `le ${completed.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`;
+  };
+
+  // Récupérer l'utilisateur qui a complété la tâche (pour affichage)
+  const completer = task.completedBy ? getUserById(task.completedBy) : null;
+  const isDone = task.status === 'completed' || task.status === 'validated';
   
   return (
     <TouchableOpacity
@@ -230,6 +254,19 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
           </View>
         )}
       </View>
+
+      {/* Footer "Terminée par X · il y a Y" — visible uniquement si complétée */}
+      {isDone && task.completedAt && (
+        <View style={[styles.completionFooter, { borderTopColor: theme.border }]}>
+          <CheckCircle size={12} color={theme.success} />
+          <Text style={[styles.completionText, { color: darkMode ? theme.inactive : '#888' }]}>
+            Terminée
+            {completer ? ` par ${completer.firstName} ${completer.lastName.charAt(0)}.` : ''}
+            {' · '}
+            {formatCompletedAgo(task.completedAt)}
+          </Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 };
@@ -301,5 +338,18 @@ const styles = StyleSheet.create({
   },
   categoryText: {
     fontSize: 12,
+  },
+  completionFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+  },
+  completionText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    flex: 1,
   },
 });

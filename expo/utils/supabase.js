@@ -12,6 +12,18 @@ const AUTH_STORAGE_KEY = 'mysteria-auth-storage';
 let supabaseInstance = null;
 let supabaseAdminInstance = null;
 
+// Cache mémoire du token user actif. Mis à jour par cacheAccessToken() après
+// signInWithPassword/setSession pour éviter de dépendre de getSession() qui
+// peut être async-instable juste après un login (le client GoTrueClient ne
+// propage pas toujours sa session immédiatement vers AsyncStorage).
+let _cachedAccessToken = null;
+
+export const cacheAccessToken = (token) => {
+  _cachedAccessToken = token ?? null;
+};
+
+export const getCachedAccessToken = () => _cachedAccessToken;
+
 const authStorage = {
   getItem: async (key) => {
     const value = await AsyncStorage.getItem(key);
@@ -48,17 +60,22 @@ const createPostgrestClient = (authClient) => {
       'Content-Type': 'application/json',
     },
     fetch: async (input, init) => {
-      const { data } = await authClient.getSession();
-      const accessToken = data?.session?.access_token;
+      // Priorité au token caché en mémoire (mis à jour synchrone par
+      // cacheAccessToken au login). Fallback vers getSession() si besoin.
+      let accessToken = _cachedAccessToken;
+      if (!accessToken) {
+        try {
+          const { data } = await authClient.getSession();
+          accessToken = data?.session?.access_token ?? null;
+          if (accessToken) _cachedAccessToken = accessToken;
+        } catch {
+          // ignore
+        }
+      }
       const headers = new Headers(init?.headers ?? {});
-
       headers.set('apikey', SUPABASE_ANON_KEY);
       headers.set('Authorization', `Bearer ${accessToken ?? SUPABASE_ANON_KEY}`);
-
-      return fetch(input, {
-        ...init,
-        headers,
-      });
+      return fetch(input, { ...init, headers });
     },
   });
 };
@@ -67,11 +84,19 @@ const createStorageClient = (authClient) => {
   const storageUrl = `${SUPABASE_URL}/storage/v1`;
 
   const getAuthHeaders = async () => {
-    const { data } = await authClient.getSession();
-    const token = data?.session?.access_token ?? SUPABASE_ANON_KEY;
+    let token = _cachedAccessToken;
+    if (!token) {
+      try {
+        const { data } = await authClient.getSession();
+        token = data?.session?.access_token ?? null;
+        if (token) _cachedAccessToken = token;
+      } catch {
+        // ignore
+      }
+    }
     return {
       apikey: SUPABASE_ANON_KEY,
-      Authorization: `Bearer ${token}`,
+      Authorization: `Bearer ${token ?? SUPABASE_ANON_KEY}`,
     };
   };
 
@@ -170,29 +195,60 @@ export const reinitializeSupabase = () => {
 };
 
 export const syncUserWithSupabase = async (authUser) => {
+  // Best-effort : on cherche d'abord la row existante par supabaseUserId.
+  // - Si trouvée → on update juste updatedAt (rapide, pas de WITH CHECK strict).
+  // - Si pas trouvée → on n'INSERT PAS (les profils sont créés par les admins,
+  //   pas auto-créés au login). Le login function gère le cas "user pas lié"
+  //   avec un fallback par email.
   try {
     const supabase = getSupabase();
     const now = new Date().toISOString();
-    const { data, error } = await supabase
+
+    // 1. Cherche la row par supabaseUserId
+    const { data: existing, error: lookupErr } = await supabase
       .from('users')
-      .upsert(
-        {
-          supabaseUserId: authUser.id,
-          email: authUser.email,
-          updatedAt: now,
-        },
-        { onConflict: 'supabaseUserId' }
-      )
+      .select('id')
+      .eq('supabaseUserId', authUser.id)
+      .maybeSingle();
+
+    if (lookupErr) {
+      // Probablement RLS / JWT pas encore propagé. Non-bloquant.
+      return {
+        success: false,
+        error: lookupErr.message,
+        details: lookupErr.details,
+        hint: lookupErr.hint,
+        fullError: lookupErr,
+      };
+    }
+
+    if (!existing) {
+      // Pas de profil pour cet auth user → on retourne en non-bloquant.
+      // Le fallback dans login() retentera de lier par email après que la session soit settled.
+      return {
+        success: false,
+        error: 'No profile linked yet (will retry via email fallback)',
+        details: null,
+        hint: null,
+        fullError: null,
+      };
+    }
+
+    // 2. Update du updatedAt (touch — montre que l'user s'est connecté récemment)
+    const { data, error: updateErr } = await supabase
+      .from('users')
+      .update({ updatedAt: now })
+      .eq('id', existing.id)
       .select()
       .single();
 
-    if (error) {
+    if (updateErr) {
       return {
         success: false,
-        error: error.message,
-        details: error.details,
-        hint: error.hint,
-        fullError: error,
+        error: updateErr.message,
+        details: updateErr.details,
+        hint: updateErr.hint,
+        fullError: updateErr,
       };
     }
 

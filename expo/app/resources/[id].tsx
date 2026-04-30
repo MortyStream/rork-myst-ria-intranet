@@ -23,7 +23,10 @@ import {
   EyeOff,
   Edit,
   Trash,
+  Download,
+  Check,
 } from 'lucide-react-native';
+import * as Sharing from 'expo-sharing';
 import { useResourcesStore } from '@/store/resources-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -33,6 +36,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Card } from '@/components/Card';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
+import { getCachedOrDownload, isFileCached } from '@/utils/file-cache';
 
 export default function ResourceCategoryScreen() {
   const router = useRouter();
@@ -53,6 +57,10 @@ export default function ResourceCategoryScreen() {
   const [currentFolder, setCurrentFolder] = useState<string | null>(null);
   const [folderPath, setFolderPath] = useState<{ id: string | null; name: string }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Map itemId → boolean (true = fichier déjà téléchargé en cache local)
+  const [cachedItems, setCachedItems] = useState<Record<string, boolean>>({});
+  // Map itemId → boolean (true = téléchargement en cours)
+  const [downloadingItems, setDownloadingItems] = useState<Record<string, boolean>>({});
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   const isCategoryResponsible = user ? isUserCategoryResponsible(user.id, id) : false;
@@ -66,18 +74,81 @@ export default function ResourceCategoryScreen() {
     setIsLoading(true);
     try {
       const items = getResourceItemsByCategory(id, currentFolder);
-      
+
       // Filter out hidden items if user is not admin/moderator/responsible
       const visibleItems = canManageItems
         ? items
         : items.filter(item => !item.hidden);
-      
+
       setResourceItems(visibleItems);
+      // Lance la détection des fichiers déjà cachés en arrière-plan
+      detectCachedFiles(visibleItems);
     } catch (error) {
       console.error('Error loading resource items:', error);
       Alert.alert('Erreur', 'Impossible de charger les éléments de cette catégorie.');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  /**
+   * Pour chaque item de type file/image, vérifie en arrière-plan si le fichier
+   * est déjà dans le cache local pour afficher le badge "✓ Hors ligne".
+   */
+  const detectCachedFiles = async (items: ResourceItem[]) => {
+    const checks = items
+      .filter((it) => (it.type === 'file' && it.fileUrl) || (it.type === 'image' && it.content))
+      .map(async (it) => {
+        const url = it.type === 'file' ? it.fileUrl! : it.content!;
+        const cached = await isFileCached(it.id, url);
+        return { id: it.id, cached };
+      });
+    const results = await Promise.all(checks);
+    const map: Record<string, boolean> = {};
+    for (const r of results) map[r.id] = r.cached;
+    setCachedItems(map);
+  };
+
+  /**
+   * Ouvre un fichier (PDF, image, etc.) :
+   * 1. Si en cache local → ouvre direct via Sharing.shareAsync (système natif)
+   * 2. Sinon → télécharge dans le cache puis ouvre
+   * 3. La share sheet permet à l'user de prévisualiser, partager ou ouvrir
+   *    dans une autre app (Adobe, Files, Mail, etc.)
+   */
+  const openCachedFile = async (itemId: string, remoteUrl: string, title: string) => {
+    setDownloadingItems((prev) => ({ ...prev, [itemId]: true }));
+    try {
+      const cached = await getCachedOrDownload(itemId, remoteUrl);
+
+      // Marque comme caché pour le badge UI
+      setCachedItems((prev) => ({ ...prev, [itemId]: true }));
+
+      // Ouvre via la share sheet native (préview + ouverture par n'importe quelle app)
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (isAvailable) {
+        await Sharing.shareAsync(cached.localUri, {
+          dialogTitle: title,
+          UTI: 'public.item', // iOS : générique, laisse iOS détecter le bon UTI
+        });
+      } else {
+        // Fallback (web, ou cas exotique) — utilise le navigateur sur l'URL distante
+        await Linking.openURL(remoteUrl);
+      }
+    } catch (err: any) {
+      console.error('openCachedFile error:', err);
+      Alert.alert(
+        "Impossible d'ouvrir le fichier",
+        err?.message?.includes('Téléchargement échoué')
+          ? "Échec du téléchargement. Vérifiez votre connexion internet."
+          : "Une erreur est survenue lors de l'ouverture du fichier."
+      );
+    } finally {
+      setDownloadingItems((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
     }
   };
 
@@ -203,29 +274,14 @@ export default function ResourceCategoryScreen() {
         break;
       case 'file':
         if (item.fileUrl) {
-          Alert.alert(
-            'Ouvrir le fichier',
-            `« ${item.title} » va s'ouvrir dans votre navigateur.`,
-            [
-              { text: 'Annuler', style: 'cancel' },
-              {
-                text: 'OK',
-                onPress: () => Linking.openURL(item.fileUrl!).catch(() =>
-                  Alert.alert('Erreur', "Impossible d'ouvrir ce fichier.")
-                ),
-              },
-            ]
-          );
+          openCachedFile(item.id, item.fileUrl, item.title);
         } else {
           Alert.alert('Fichier indisponible', "Aucun fichier n'est attaché à cet élément.");
         }
         break;
       case 'image':
         if (item.content) {
-          // L'URL publique Supabase ouvre l'image plein écran dans le navigateur
-          Linking.openURL(item.content).catch(() =>
-            Alert.alert('Erreur', "Impossible d'afficher cette image.")
-          );
+          openCachedFile(item.id, item.content, item.title);
         } else {
           Alert.alert('Image indisponible', "Aucune image n'est attachée.");
         }
@@ -251,54 +307,73 @@ export default function ResourceCategoryScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: ResourceItem }) => (
-    <Card style={styles.itemCard}>
-      <TouchableOpacity
-        style={styles.itemContent}
-        onPress={() => handleItemPress(item)}
-      >
-        <View style={styles.itemIconContainer}>
-          {getItemIcon(item.type)}
-        </View>
-        <View style={styles.itemDetails}>
-          <Text style={[styles.itemTitle, { color: theme.text }]}>
-            {item.title}
-          </Text>
-          {item.description && (
-            <Text 
-              style={[styles.itemDescription, { color: darkMode ? theme.inactive : '#666666' }]}
-              numberOfLines={1}
-            >
-              {item.description}
-            </Text>
+  const renderItem = ({ item }: { item: ResourceItem }) => {
+    const isCacheable = item.type === 'file' || item.type === 'image';
+    const isCached = isCacheable && cachedItems[item.id];
+    const isDownloading = downloadingItems[item.id];
+
+    return (
+      <Card style={styles.itemCard}>
+        <TouchableOpacity
+          style={styles.itemContent}
+          onPress={() => handleItemPress(item)}
+        >
+          <View style={styles.itemIconContainer}>
+            {getItemIcon(item.type)}
+          </View>
+          <View style={styles.itemDetails}>
+            <View style={styles.itemTitleRow}>
+              <Text style={[styles.itemTitle, { color: theme.text }]} numberOfLines={1}>
+                {item.title}
+              </Text>
+              {isDownloading && (
+                <ActivityIndicator size="small" color={theme.primary} style={styles.itemBadge} />
+              )}
+              {!isDownloading && isCached && (
+                <View style={[styles.cachedBadge, { backgroundColor: `${theme.success}25` }]}>
+                  <Check size={10} color={theme.success} strokeWidth={3} />
+                  <Text style={[styles.cachedBadgeText, { color: theme.success }]}>
+                    Hors ligne
+                  </Text>
+                </View>
+              )}
+            </View>
+            {item.description && (
+              <Text
+                style={[styles.itemDescription, { color: darkMode ? theme.inactive : '#666666' }]}
+                numberOfLines={1}
+              >
+                {item.description}
+              </Text>
+            )}
+          </View>
+          {item.hidden && (
+            <View style={styles.hiddenBadge}>
+              <EyeOff size={16} color="#ffffff" />
+            </View>
           )}
-        </View>
-        {item.hidden && (
-          <View style={styles.hiddenBadge}>
-            <EyeOff size={16} color="#ffffff" />
+        </TouchableOpacity>
+
+        {canManageItems && (
+          <View style={styles.itemActions}>
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: theme.primary }]}
+              onPress={() => handleEditItem(item)}
+            >
+              <Edit size={16} color="#ffffff" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.actionButton, { backgroundColor: theme.error }]}
+              onPress={() => handleDeleteItem(item)}
+            >
+              <Trash size={16} color="#ffffff" />
+            </TouchableOpacity>
           </View>
         )}
-      </TouchableOpacity>
-      
-      {canManageItems && (
-        <View style={styles.itemActions}>
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: theme.primary }]}
-            onPress={() => handleEditItem(item)}
-          >
-            <Edit size={16} color="#ffffff" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.actionButton, { backgroundColor: theme.error }]}
-            onPress={() => handleDeleteItem(item)}
-          >
-            <Trash size={16} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
-      )}
-    </Card>
-  );
+      </Card>
+    );
+  };
 
   const renderHeader = () => (
     <View style={styles.header}>
@@ -509,6 +584,28 @@ const styles = StyleSheet.create({
   itemTitle: {
     fontSize: 16,
     fontWeight: '500',
+    flex: 1,
+  },
+  itemTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  itemBadge: {
+    marginLeft: 4,
+  },
+  cachedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  cachedBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
   itemDescription: {
     fontSize: 14,

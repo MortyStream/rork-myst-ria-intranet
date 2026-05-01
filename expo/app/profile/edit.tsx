@@ -285,12 +285,15 @@ export default function EditProfileScreen() {
         profileImage
       });
       
+      const { successHaptic } = await import('@/utils/haptics');
+      successHaptic();
+
       Toast.show({
         type: 'success',
         text1: 'Profil mis à jour',
         text2: 'Vos informations ont été mises à jour avec succès',
       });
-      
+
       router.back();
     } catch (error) {
       console.error('Error saving profile:', error);

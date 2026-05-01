@@ -97,6 +97,9 @@ export default function ChangePasswordScreen() {
         return;
       }
 
+      const { successHaptic } = await import('@/utils/haptics');
+      successHaptic();
+
       Alert.alert(
         'Succès',
         'Votre mot de passe a été modifié avec succès.',

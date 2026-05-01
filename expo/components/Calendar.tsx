@@ -15,8 +15,11 @@ const getDaysInMonth = (year: number, month: number) => {
   return new Date(year, month + 1, 0).getDate();
 };
 
+// Retourne le jour de la semaine du 1er du mois en mode "Lundi=0, Dimanche=6"
+// (convention européenne FR/CH) au lieu du défaut JS "Dimanche=0".
 const getFirstDayOfMonth = (year: number, month: number) => {
-  return new Date(year, month, 1).getDay();
+  const jsDay = new Date(year, month, 1).getDay(); // 0=Dim, 1=Lun, ..., 6=Sam
+  return jsDay === 0 ? 6 : jsDay - 1;              // 0=Lun, 1=Mar, ..., 6=Dim
 };
 
 const getMonthName = (month: number) => {
@@ -46,7 +49,8 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
   const [currentMonth, setCurrentMonth] = useState(new Date().getMonth());
   const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
 
-  const weekDays = ['Dim', 'Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam'];
+  // Convention FR/CH : la semaine commence le lundi
+  const weekDays = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
   // Calcul réactif des jours + couleurs basé sur events + mois
   const calendarDays = useMemo(() => {

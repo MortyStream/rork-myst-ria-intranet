@@ -94,6 +94,8 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
       
       markAsRead: (id) => {
+        // UI optimiste : update local d'abord (déjà existant), avec rollback sur erreur
+        const previous = get().notifications;
         const now = new Date().toISOString();
         set(state => ({
           notifications: state.notifications.map(notification =>
@@ -107,11 +109,15 @@ export const useNotificationsStore = create<NotificationsStore>()(
           .update({ read: true, updatedAt: now })
           .eq('id', id)
           .then(({ error }) => {
-            if (error) console.log('Erreur markAsRead Supabase:', error);
+            if (error) {
+              console.log('Erreur markAsRead Supabase, rollback:', error);
+              set({ notifications: previous });
+            }
           });
       },
 
       markAllAsRead: () => {
+        const previous = get().notifications;
         const now = new Date().toISOString();
         const ids = get().notifications.filter(n => !n.read).map(n => n.id);
         set(state => ({
@@ -127,12 +133,16 @@ export const useNotificationsStore = create<NotificationsStore>()(
             .update({ read: true, updatedAt: now })
             .in('id', ids)
             .then(({ error }) => {
-              if (error) console.log('Erreur markAllAsRead Supabase:', error);
+              if (error) {
+                console.log('Erreur markAllAsRead Supabase, rollback:', error);
+                set({ notifications: previous });
+              }
             });
         }
       },
-      
+
       deleteNotification: (id) => {
+        const previous = get().notifications;
         set(state => ({
           notifications: state.notifications.filter(notification => notification.id !== id),
         }));
@@ -141,7 +151,17 @@ export const useNotificationsStore = create<NotificationsStore>()(
           .delete()
           .eq('id', id)
           .then(({ error }) => {
-            if (error) console.log('Erreur suppression notification Supabase:', error);
+            if (error) {
+              console.log('Erreur suppression notification Supabase, rollback:', error);
+              set({ notifications: previous });
+              import('react-native-toast-message').then((module) => {
+                module.default.show({
+                  type: 'error',
+                  text1: 'Erreur',
+                  text2: 'La notification n\'a pas pu être supprimée.',
+                });
+              });
+            }
           });
       },
       

@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  ScrollView, 
+import {
+  StyleSheet,
+  View,
+  ScrollView,
   RefreshControl,
   Text,
+  Alert,
 } from 'react-native';
 import { Plus } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -17,6 +18,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { TaskItem } from '@/components/TaskItem';
 import { TaskDetail } from '@/components/TaskDetail';
 import { TaskForm } from '@/components/TaskForm';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { Task } from '@/types/task';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
@@ -30,6 +32,7 @@ export default function TasksScreen() {
     initializeTasks,
     checkAndSendTaskReminders,
     updateTaskStatus,
+    deleteTask,
   } = useTasksStore();
 
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -38,6 +41,9 @@ export default function TasksScreen() {
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
+  // États du dialog de suppression custom (remplace Alert.alert)
+  const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
     initializeTasks().then(() => {
@@ -75,6 +81,9 @@ export default function TasksScreen() {
   const handleToggleDone = async (task: Task) => {
     const isDone = task.status === 'completed' || task.status === 'validated';
     const nextStatus = isDone ? 'pending' : 'completed';
+    // Haptic instant : feedback tactile d\u00e8s le tap, avant m\u00eame l'API call
+    const { tapHaptic } = await import('@/utils/haptics');
+    tapHaptic();
     try {
       await updateTaskStatus(task.id, nextStatus);
     } catch (e) {
@@ -86,6 +95,40 @@ export default function TasksScreen() {
     if (!user) return false;
     // L'utilisateur peut cocher s'il est assign\u00e9 OU s'il a cr\u00e9\u00e9 la t\u00e2che
     return task.assignedTo.includes(user.id) || task.assignedBy === user.id;
+  };
+
+  /**
+   * Vrai si l'utilisateur peut supprimer la t\u00e2che :
+   * - admin (peut tout supprimer)
+   * - cr\u00e9ateur de la t\u00e2che (assignedBy)
+   */
+  const canUserDelete = (task: Task): boolean => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return task.assignedBy === user.id;
+  };
+
+  const handleLongPressTask = async (task: Task) => {
+    if (!canUserDelete(task)) return; // Pas le droit, on ne propose m\u00eame pas le menu
+    const { mediumHaptic } = await import('@/utils/haptics');
+    mediumHaptic();
+    setTaskToDelete(task);
+    setConfirmDelete(false);
+  };
+
+  const performDeleteTask = async () => {
+    if (!taskToDelete) return;
+    try {
+      const { warningHaptic } = await import('@/utils/haptics');
+      warningHaptic();
+      await deleteTask(taskToDelete.id);
+    } catch (e: any) {
+      console.error('Delete task error:', e);
+      Alert.alert('Erreur', `Impossible de supprimer la t\u00e2che.\n${e?.message ?? ''}`);
+    } finally {
+      setTaskToDelete(null);
+      setConfirmDelete(false);
+    }
   };
   
   const handleAddTask = () => {
@@ -170,6 +213,7 @@ export default function TasksScreen() {
                   onPress={() => handleTaskPress(task)}
                   onToggleDone={() => handleToggleDone(task)}
                   canToggleDone={canUserToggle(task)}
+                  onLongPress={canUserDelete(task) ? () => handleLongPressTask(task) : undefined}
                 />
               ))}
             </View>
@@ -189,6 +233,7 @@ export default function TasksScreen() {
                   onPress={() => handleTaskPress(task)}
                   onToggleDone={() => handleToggleDone(task)}
                   canToggleDone={canUserToggle(task)}
+                  onLongPress={canUserDelete(task) ? () => handleLongPressTask(task) : undefined}
                 />
               ))}
             </View>
@@ -216,11 +261,42 @@ export default function TasksScreen() {
         ) : null}
         
         {showTaskForm ? (
-          <TaskForm 
-            onClose={handleTaskFormClose} 
+          <TaskForm
+            onClose={handleTaskFormClose}
             onSave={handleTaskFormSave}
           />
         ) : null}
+
+        {/* Dialog custom pour suppression de tâche (remplace Alert.alert moche sur Android) */}
+        {/* Étape 1 : menu d'actions */}
+        <ConfirmModal
+          visible={taskToDelete !== null && !confirmDelete}
+          title={taskToDelete?.title ?? ''}
+          message="Que voulez-vous faire avec cette tâche ?"
+          actions={[
+            { label: 'Annuler', style: 'cancel' },
+            {
+              label: 'Supprimer',
+              style: 'destructive',
+              onPress: () => setConfirmDelete(true),
+            },
+          ]}
+          onDismiss={() => setTaskToDelete(null)}
+        />
+        {/* Étape 2 : confirmation finale */}
+        <ConfirmModal
+          visible={taskToDelete !== null && confirmDelete}
+          title="Supprimer la tâche ?"
+          message={`« ${taskToDelete?.title ?? ''} » sera supprimée définitivement.\n\nCette action est irréversible.`}
+          actions={[
+            { label: 'Non', style: 'cancel', onPress: () => setConfirmDelete(false) },
+            { label: 'Oui, supprimer', style: 'destructive', onPress: performDeleteTask },
+          ]}
+          onDismiss={() => {
+            setConfirmDelete(false);
+            setTaskToDelete(null);
+          }}
+        />
       </SafeAreaView>
     </AppLayout>
   );

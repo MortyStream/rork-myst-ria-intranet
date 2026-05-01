@@ -22,9 +22,11 @@ interface TaskItemProps {
   onToggleDone?: () => void;
   /** Si true, affiche la checkbox tappable. Sinon, rien (observateur). */
   canToggleDone?: boolean;
+  /** Long-press menu — typiquement pour proposer la suppression (admin/créateur). */
+  onLongPress?: () => void;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone, canToggleDone }) => {
+export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone, canToggleDone, onLongPress }) => {
   const { darkMode } = useSettingsStore();
   const { getUserById } = useUsersStore();
   const { getCategoryById } = useResourcesStore();
@@ -161,13 +163,15 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
     <TouchableOpacity
       style={[
         styles.container,
-        { 
+        {
           backgroundColor: theme.card,
           borderLeftColor: getPriorityColor(),
           borderLeftWidth: 4,
         }
       ]}
       onPress={onPress}
+      onLongPress={onLongPress}
+      delayLongPress={500}
       activeOpacity={0.7}
     >
       <View style={styles.header}>

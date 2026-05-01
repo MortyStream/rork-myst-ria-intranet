@@ -174,12 +174,14 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
     Alert.alert('Rappel envoyé', 'Un rappel a été envoyé aux personnes assignées à cette tâche.');
   };
   
-  const handleSubmitComment = () => {
+  const handleSubmitComment = async () => {
     if (!newComment.trim() || !user) return;
-    
+
     setIsSubmitting(true);
-    
+
     try {
+      const { tapHaptic } = await import('@/utils/haptics');
+      tapHaptic();
       addComment(task.id, user.id, newComment.trim());
       setNewComment('');
       if (onUpdate) onUpdate();

@@ -130,9 +130,24 @@ export const useCalendarStore = create<CalendarStore>()(
 
       deleteEvent: async (id) => {
         const supabase = getSupabase();
+        // UI optimiste : retire l'event de la liste IMMÉDIATEMENT
+        const previousEvents = get().events;
+        set((state) => ({ events: state.events.filter((e) => e.id !== id) }));
+
         const { error } = await supabase.from('events').delete().eq('id', id);
-        if (error) throw error;
-        set(state => ({ events: state.events.filter(e => e.id !== id) }));
+        if (error) {
+          console.error('deleteEvent failed, rolling back:', error);
+          set({ events: previousEvents });
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'L\'événement n\'a pas pu être supprimé.',
+            });
+          } catch {}
+          throw error;
+        }
       },
 
       addParticipant: async (eventId, userId, status = 'pending') => {
@@ -157,10 +172,53 @@ export const useCalendarStore = create<CalendarStore>()(
       updateParticipantStatus: async (eventId, userId, status) => {
         const event = get().getEventById(eventId);
         if (!event) return;
+
         const updatedParticipants = (event.participants || []).map(p =>
           p.userId === userId ? { ...p, status, responseDate: new Date().toISOString() } : p
         );
-        await get().updateEvent(eventId, { participants: updatedParticipants });
+
+        // ── UI OPTIMISTE ──
+        // Snapshot du state pour rollback si l'API échoue
+        const previousEvents = get().events;
+
+        // Update local IMMÉDIAT — l'utilisateur voit son RSVP changer instantanément
+        // (le bandeau "Vous participez" / "Vous avez décliné" apparaît tout de suite)
+        const now = new Date().toISOString();
+        set((state) => ({
+          events: state.events.map((e) =>
+            e.id === eventId
+              ? { ...e, participants: updatedParticipants, updatedAt: now }
+              : e
+          ),
+        }));
+
+        // Push vers Supabase en arrière-plan
+        try {
+          const supabase = getSupabase();
+          const { data, error } = await supabase
+            .from('events')
+            .update({ participants: updatedParticipants, updatedAt: now })
+            .eq('id', eventId)
+            .select()
+            .single();
+          if (error) throw error;
+          // Reconcile avec la row serveur
+          set((state) => ({
+            events: state.events.map((e) => (e.id === eventId ? data : e)),
+          }));
+        } catch (err) {
+          console.error('updateParticipantStatus failed, rolling back:', err);
+          set({ events: previousEvents });
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'Votre réponse n\'a pas été enregistrée. Réessayez.',
+            });
+          } catch {}
+          throw err;
+        }
       },
 
       getEventById: (id) => get().events.find(e => e.id === id),

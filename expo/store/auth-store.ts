@@ -5,6 +5,7 @@ import { Platform } from 'react-native';
 import { User, AuthState } from '@/types/user';
 import { getSupabase, syncUserWithSupabase, cacheAccessToken } from '@/utils/supabase';
 import { unregisterPushToken } from '@/utils/push-notifications';
+import { clearAllLocalReminders, clearAppBadge } from '@/utils/local-notifications';
 
 // SÉCURITÉ : aucun "PREVIEW_USER" admin auto-loggué.
 // Les anciens DEFAULT_ADMIN / DEFAULT_MODERATOR / PREVIEW_USER ouvraient une porte dérobée
@@ -899,6 +900,14 @@ export const useAuthStore = create<AuthStore>()(
           // Clear le cache du JWT — sinon le fetch wrapper continuerait
           // d'utiliser l'ancien token jusqu'à expiration
           cacheAccessToken(null);
+
+          // Clear toutes les notifs locales programmées (sinon un autre user
+          // qui se connecterait sur le même device recevrait les rappels)
+          clearAllLocalReminders().catch(() => {});
+
+          // Reset le badge sur l'icône (sinon le chiffre persiste à l'écran
+          // d'accueil même quand l'app est déconnectée)
+          clearAppBadge().catch(() => {});
 
           // Sign out from Supabase
           const supabase = getSupabase();

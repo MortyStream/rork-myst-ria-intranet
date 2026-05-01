@@ -335,6 +335,9 @@ export default function EventFormScreen() {
         Alert.alert('Succès', 'Événement créé avec succès.');
       }
 
+      const { successHaptic } = await import('@/utils/haptics');
+      successHaptic();
+
       router.back();
     } catch (error) {
       console.error('Error saving event:', error);

@@ -77,8 +77,10 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   user?.role === 'responsable_pole'
 );
 
-  // Filter users that can be assigned to tasks
- const eligibleUsers = users.filter(u => u.id !== user?.id);
+  // Tous les users sont éligibles, y compris soi-même (auto-assignation autorisée).
+  // Ex : on prend une tâche pour soi avec un rappel — pas besoin de la déléguer
+  // à un collègue pour ça.
+  const eligibleUsers = users;
 
   const openDatePicker = () => {
     setTempDeadline(deadline ?? new Date());

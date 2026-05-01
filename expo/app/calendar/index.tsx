@@ -6,6 +6,7 @@ import {
   ScrollView,
   TouchableOpacity,
   FlatList,
+  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -28,12 +29,13 @@ import { EmptyState } from '@/components/EmptyState';
 import { Event } from '@/types/calendar';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
+import { ConfirmModal } from '@/components/ConfirmModal';
 
 export default function CalendarScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
   const { darkMode } = useSettingsStore();
-  const { getEventsByDate, initializeEvents } = useCalendarStore();
+  const { getEventsByDate, initializeEvents, deleteEvent } = useCalendarStore();
   // Souscription réactive : re-rend la liste quand des events changent dans le store
   const storeEvents = useCalendarStore(state => state.events);
   const { getUserById } = useUsersStore();
@@ -41,6 +43,9 @@ export default function CalendarScreen() {
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
+  // États du dialog de suppression custom
+  const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
 
@@ -86,6 +91,42 @@ export default function CalendarScreen() {
     });
   };
 
+  /**
+   * Long-press menu : permet de supprimer un event si l'utilisateur est :
+   * - admin / responsable_pole / responsable_secteur
+   * - OU créateur de l'event (item.createdBy === user.id)
+   */
+  const canDeleteEvent = (event: Event): boolean => {
+    if (!user) return false;
+    if (user.role === 'admin' || user.role === 'responsable_pole' || user.role === 'responsable_secteur') {
+      return true;
+    }
+    return event.createdBy === user.id;
+  };
+
+  const handleLongPressEvent = async (event: Event) => {
+    if (!canDeleteEvent(event)) return;
+    const { mediumHaptic } = await import('@/utils/haptics');
+    mediumHaptic();
+    setEventToDelete(event);
+    setConfirmDelete(false);
+  };
+
+  const performDeleteEvent = async () => {
+    if (!eventToDelete) return;
+    try {
+      const { warningHaptic } = await import('@/utils/haptics');
+      warningHaptic();
+      await deleteEvent(eventToDelete.id);
+    } catch (e: any) {
+      console.error('Delete event error:', e);
+      Alert.alert('Erreur', `Impossible de supprimer l'événement.\n${e?.message ?? ''}`);
+    } finally {
+      setEventToDelete(null);
+      setConfirmDelete(false);
+    }
+  };
+
   const renderEventItem = ({ item }: { item: Event }) => {
     const creator = getUserById(item.createdBy);
     const participantsCount = item.participants?.length || 0;
@@ -94,6 +135,8 @@ export default function CalendarScreen() {
       <TouchableOpacity
         style={[styles.eventItem, { backgroundColor: theme.card }]}
         onPress={() => handleEventPress(item.id)}
+        onLongPress={canDeleteEvent(item) ? () => handleLongPressEvent(item) : undefined}
+        delayLongPress={500}
       >
         <View style={[styles.eventColorIndicator, { backgroundColor: item.color || theme.primary }]} />
 
@@ -193,6 +236,44 @@ export default function CalendarScreen() {
             )}
           </View>
         </ScrollView>
+
+        {/* Dialog custom pour suppression d'événement (remplace Alert.alert) */}
+        {/* Étape 1 : menu d'actions */}
+        <ConfirmModal
+          visible={eventToDelete !== null && !confirmDelete}
+          title={eventToDelete?.title ?? ''}
+          message="Que voulez-vous faire avec cet événement ?"
+          actions={[
+            { label: 'Annuler', style: 'cancel' },
+            {
+              label: 'Supprimer',
+              style: 'destructive',
+              onPress: () => setConfirmDelete(true),
+            },
+          ]}
+          onDismiss={() => setEventToDelete(null)}
+        />
+        {/* Étape 2 : confirmation finale (avec compte des participants impactés) */}
+        <ConfirmModal
+          visible={eventToDelete !== null && confirmDelete}
+          title="Supprimer l'événement ?"
+          message={(() => {
+            if (!eventToDelete) return '';
+            const count = eventToDelete.participants?.length ?? 0;
+            const detail = count > 0
+              ? `« ${eventToDelete.title} » sera retiré du calendrier de ${count} participant${count > 1 ? 's' : ''}.`
+              : `« ${eventToDelete.title} » sera supprimé.`;
+            return `${detail}\n\nCette action est définitive et ne peut pas être annulée.`;
+          })()}
+          actions={[
+            { label: 'Non', style: 'cancel', onPress: () => setConfirmDelete(false) },
+            { label: 'Oui, supprimer', style: 'destructive', onPress: performDeleteEvent },
+          ]}
+          onDismiss={() => {
+            setConfirmDelete(false);
+            setEventToDelete(null);
+          }}
+        />
       </SafeAreaView>
     </AppLayout>
   );

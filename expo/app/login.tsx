@@ -67,6 +67,10 @@ export default function LoginScreen() {
       } catch (e) {
         console.log('refreshUserData error (ignored):', e);
       }
+      // Haptic success — feedback tactile que le login a marché
+      const { successHaptic } = await import('@/utils/haptics');
+      successHaptic();
+
       // Premier login après installation → onboarding 3 écrans
       const { hasSeenOnboarding } = useSettingsStore.getState();
       router.replace(hasSeenOnboarding ? '/home' : '/onboarding');

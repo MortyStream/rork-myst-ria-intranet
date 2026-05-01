@@ -203,6 +203,9 @@ export default function SettingsScreen() {
         console.warn('Mail composer error (non-bloquant):', mailError);
       }
 
+      const { successHaptic } = await import('@/utils/haptics');
+      successHaptic();
+
       setReportSent(true);
       setBugDescription('');
       setScreenshotUris([]);

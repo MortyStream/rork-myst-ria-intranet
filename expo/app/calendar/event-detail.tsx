@@ -138,6 +138,8 @@ export default function EventDetailScreen() {
                     text: 'Oui, supprimer',
                     style: 'destructive',
                     onPress: async () => {
+                      const { warningHaptic } = await import('@/utils/haptics');
+                      warningHaptic();
                       await deleteEvent(event.id);
                       router.back();
                     },
@@ -189,13 +191,17 @@ ${event.location || ''}`;
     }
   };
 
-  const handleUpdateStatus = (status: 'confirmed' | 'declined') => {
+  const handleUpdateStatus = async (status: 'confirmed' | 'declined') => {
     if (!user) return;
-    
+
+    // Haptic immédiat : success pour accepter, light pour décliner
+    const { successHaptic, tapHaptic } = await import('@/utils/haptics');
+    if (status === 'confirmed') successHaptic();
+    else tapHaptic();
+
+    // Le bandeau vert/rouge change instantanément grâce à l'UI optimiste
+    // → pas besoin de popup de confirmation, le feedback visuel suffit.
     updateParticipantStatus(event.id, user.id, status);
-    
-    const statusText = status === 'confirmed' ? 'accepté' : 'décliné';
-    Alert.alert('Réponse enregistrée', `Vous avez ${statusText} l'invitation à l'événement "${event.title}".`);
   };
 
   const handleSendReminders = () => {

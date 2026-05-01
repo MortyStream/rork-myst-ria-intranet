@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Task, TaskComment, TaskStatus, TaskPriority } from '@/types/task';
 import { getSupabase } from '@/utils/supabase';
 import { useNotificationsStore } from './notifications-store';
+import { useAuthStore } from './auth-store';
 
 const fetchTasksFromSupabase = async (): Promise<Task[]> => {
   const supabase = getSupabase();
@@ -120,9 +121,26 @@ export const useTasksStore = create<TasksStore>()(
 
       deleteTask: async (id) => {
         const supabase = getSupabase();
+        // UI optimiste : on retire la tâche IMMÉDIATEMENT de la liste,
+        // l'utilisateur voit l'animation de disparition direct
+        const previousTasks = get().tasks;
+        set((state) => ({ tasks: state.tasks.filter((t) => t.id !== id) }));
+
         const { error } = await supabase.from('tasks').delete().eq('id', id);
-        if (error) throw error;
-        set(state => ({ tasks: state.tasks.filter(t => t.id !== id) }));
+        if (error) {
+          // Rollback : on remet la tâche dans la liste
+          console.error('deleteTask failed, rolling back:', error);
+          set({ tasks: previousTasks });
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'La tâche n\'a pas pu être supprimée.',
+            });
+          } catch {}
+          throw error;
+        }
       },
 
       updateTaskStatus: async (id, status) => {
@@ -130,8 +148,6 @@ export const useTasksStore = create<TasksStore>()(
         const now = new Date().toISOString();
         const currentUser = useAuthStore.getState().user;
 
-        // Si on passe à completed/validated, on enregistre QUI a marqué fait + QUAND.
-        // Si on revient à pending/in_progress, on efface ces champs (la tâche redevient active).
         const isFinishing = status === 'completed' || status === 'validated';
         const updateFields: Record<string, any> = { status, updatedAt: now };
         if (isFinishing) {
@@ -142,16 +158,45 @@ export const useTasksStore = create<TasksStore>()(
           updateFields.completedBy = null;
         }
 
-        const { data, error } = await supabase
-          .from('tasks')
-          .update(updateFields)
-          .eq('id', id)
-          .select()
-          .single();
-        if (error) throw error;
-        set(state => ({
-          tasks: state.tasks.map(t => t.id === id ? data : t)
+        // ── UI OPTIMISTE ──
+        // Snapshot pour rollback si l'API échoue
+        const previousTasks = get().tasks;
+
+        // Update local IMMÉDIAT — l'utilisateur voit le check changer instantanément
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === id ? { ...t, ...updateFields } : t
+          ),
         }));
+
+        // Push vers Supabase en arrière-plan
+        try {
+          const { data, error } = await supabase
+            .from('tasks')
+            .update(updateFields)
+            .eq('id', id)
+            .select()
+            .single();
+          if (error) throw error;
+          // Reconcile avec la vraie row du serveur (peut avoir updatedAt légèrement différent)
+          set((state) => ({
+            tasks: state.tasks.map((t) => (t.id === id ? data : t)),
+          }));
+        } catch (err) {
+          // Rollback : on remet l'état d'avant
+          console.error('updateTaskStatus failed, rolling back:', err);
+          set({ tasks: previousTasks });
+          // Toast non-bloquant (déjà présent dans Toast lib de l'app)
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'La modification n\'a pas été enregistrée. Réessayez.',
+            });
+          } catch {}
+          throw err;
+        }
       },
 
       validateTask: async (id, validatorId) => {

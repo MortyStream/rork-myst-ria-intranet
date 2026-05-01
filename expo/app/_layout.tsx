@@ -6,16 +6,28 @@ import Constants from 'expo-constants';
 import * as SystemUI from 'expo-system-ui';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
+import { useTasksStore } from '@/store/tasks-store';
+import { useCalendarStore } from '@/store/calendar-store';
+import { useNotificationsStore } from '@/store/notifications-store';
 import { SplashScreen } from '@/components/SplashScreen';
+import { OfflineBanner } from '@/components/OfflineBanner';
 import { Colors } from '@/constants/colors';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
 import 'react-native-url-polyfill/auto';
 import { registerPushToken } from '@/utils/push-notifications';
+import { syncLocalReminders, setAppBadge } from '@/utils/local-notifications';
 
 export default function RootLayout() {
   const { initializeAuth, user } = useAuthStore();
   const { darkMode } = useSettingsStore();
+  // Souscription réactive aux tâches + events pour resync les notifs locales
+  // chaque fois que l'un des deux change (création, update, deadline modifiée…)
+  const tasks = useTasksStore((state) => state.tasks);
+  const events = useCalendarStore((state) => state.events);
+  // Souscription réactive aux notifications pour mettre à jour le badge app
+  const notifications = useNotificationsStore((state) => state.notifications);
+  const getUnreadCount = useNotificationsStore((state) => state.getUnreadCount);
   const [isLoading, setIsLoading] = useState(true);
   const notificationListener = useRef<any>();
   const responseListener = useRef<any>();
@@ -64,6 +76,33 @@ export default function RootLayout() {
       responseListener.current?.remove();
     };
   }, [user?.id]);
+
+  // Resync les notifs locales (rappels deadline tâches + 1h avant events)
+  // chaque fois que les tâches ou events changent. Backup offline du serveur.
+  useEffect(() => {
+    if (!user?.id || user.id === 'preview-user') return;
+    // Debounce 500ms : si plusieurs updates arrivent d'un coup (initial load
+    // ou batch sync), on attend que ça se stabilise avant de tout reprogrammer.
+    const timeoutId = setTimeout(() => {
+      syncLocalReminders(tasks as any, events as any, user.id).catch((err) => {
+        console.log('[LocalNotif] sync from layout error:', err);
+      });
+    }, 500);
+    return () => clearTimeout(timeoutId);
+  }, [user?.id, tasks, events]);
+
+  // Update du badge sur l'icône de l'app à chaque changement des notifications.
+  // Le badge reflète le nombre de notifs non lues pour l'user courant.
+  useEffect(() => {
+    if (!user?.id || user.id === 'preview-user') {
+      setAppBadge(0).catch(() => {});
+      return;
+    }
+    const unread = getUnreadCount();
+    setAppBadge(unread).catch((err) => {
+      console.log('[Badge] update from layout error:', err);
+    });
+  }, [user?.id, notifications, getUnreadCount]);
   
   if (isLoading) {
     return <SplashScreen />;
@@ -82,6 +121,8 @@ export default function RootLayout() {
           animation: Platform.OS === 'android' ? 'fade' : 'default',
         }}
       />
+      {/* Banner "Hors ligne" — overlay au-dessus de tout, animation slide */}
+      <OfflineBanner />
       <Toast />
     </GestureHandlerRootView>
   );

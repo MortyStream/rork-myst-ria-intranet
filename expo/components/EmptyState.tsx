@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
 import { Button } from './Button';
-import { Calendar, AlertCircle, Info, CheckCircle, XCircle, Database, Folder } from 'lucide-react-native';
+import { Calendar, AlertCircle, Info, CheckCircle, XCircle, Database, Folder, Search, CheckSquare } from 'lucide-react-native';
 
 interface EmptyStateProps {
   title: string;
@@ -54,6 +54,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           return <Database size={iconSize} color={iconColor} />;
         case 'folder':
           return <Folder size={iconSize} color={iconColor} />;
+        case 'search':
+          return <Search size={iconSize} color={iconColor} />;
+        case 'check-square':
+          return <CheckSquare size={iconSize} color={iconColor} />;
         default:
           return <Info size={iconSize} color={iconColor} />;
       }

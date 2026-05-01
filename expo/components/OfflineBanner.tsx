@@ -9,6 +9,7 @@ import {
 import { WifiOff } from 'lucide-react-native';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
+import { usePendingQueueStore } from '@/store/pending-queue-store';
 
 /**
  * Toast "Hors ligne" — pill compacte en bas de l'écran qui apparaît seulement
@@ -23,10 +24,34 @@ import { Colors } from '@/constants/colors';
 // État partagé entre tous les usagers de useIsOnline
 let _globalOnline = true;
 const _listeners = new Set<(online: boolean) => void>();
+// Listeners spécifiques aux *transitions* (pas chaque check). Utile pour
+// déclencher des actions one-shot comme flushPendingQueue() au retour online.
+const _transitionListeners = new Set<(transition: 'online' | 'offline') => void>();
 
 const setGlobalOnline = (online: boolean) => {
+  const prev = _globalOnline;
   _globalOnline = online;
   _listeners.forEach((cb) => cb(online));
+  if (prev !== online) {
+    const transition: 'online' | 'offline' = online ? 'online' : 'offline';
+    _transitionListeners.forEach((cb) => {
+      try { cb(transition); } catch (e) { console.log('[NetTransition] listener error:', e); }
+    });
+  }
+};
+
+/** Getter synchrone — utilisable depuis n'importe où (store actions, etc.). */
+export const getIsOnline = (): boolean => _globalOnline;
+
+/**
+ * Souscrit aux transitions online/offline (passages d'un état à l'autre).
+ * Retourne une fonction de désinscription.
+ */
+export const onNetworkTransition = (
+  cb: (transition: 'online' | 'offline') => void
+): (() => void) => {
+  _transitionListeners.add(cb);
+  return () => { _transitionListeners.delete(cb); };
 };
 
 /**
@@ -49,6 +74,8 @@ export const OfflineBanner: React.FC = () => {
   const [isOffline, setIsOffline] = useState(false);
   // shouldRender contrôle le mount/unmount complet (évite tout pixel résiduel)
   const [shouldRender, setShouldRender] = useState(false);
+  // Compteur d'actions en attente de sync — affiché dans le pill quand > 0
+  const pendingCount = usePendingQueueStore((s) => s.actions.length);
   const opacityAnim = useRef(new Animated.Value(0)).current;
   const translateAnim = useRef(new Animated.Value(40)).current;
 
@@ -140,7 +167,9 @@ export const OfflineBanner: React.FC = () => {
       <View style={[styles.pill, { backgroundColor: theme.warning }]}>
         <WifiOff size={14} color="#000" />
         <Text style={styles.text} numberOfLines={1}>
-          Hors ligne
+          {pendingCount > 0
+            ? `Hors ligne · ${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente`
+            : 'Hors ligne'}
         </Text>
       </View>
     </Animated.View>

@@ -40,6 +40,7 @@ import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
+import { ParticipantsStack } from '@/components/ParticipantsStack';
 import { User } from '@/types/user';
 
 // Couleurs disponibles pour les événements
@@ -497,38 +498,12 @@ export default function EventFormScreen() {
 
             <Text style={[styles.label, { color: theme.text }]}>Participants</Text>
             <View style={styles.participantsContainer}>
-              {participants.length > 0 ? (
-                <View style={styles.participantsList}>
-                  {participants.map(userId => {
-                    const participant = users.find(u => u.id === userId);
-                    if (!participant) return null;
-                    
-                    return (
-                      <View key={userId} style={[styles.participantItem, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                        <Avatar
-                          source={participant.profileImage ? { uri: participant.profileImage } : undefined}
-                          name={`${participant.firstName} ${participant.lastName}`}
-                          size={24}
-                        />
-                        <Text style={[styles.participantName, { color: theme.text }]}>
-                          {participant.firstName} {participant.lastName}
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.removeParticipantButton}
-                          onPress={() => handleRemoveParticipant(userId)}
-                        >
-                          <X size={16} color={theme.error} />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : (
-                <Text style={[styles.noParticipantsText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                  Aucun participant sélectionné
-                </Text>
-              )}
-              
+              <ParticipantsStack
+                selectedIds={participants}
+                allUsers={users}
+                onRemove={handleRemoveParticipant}
+              />
+
               <View style={styles.participantActionsRow}>
                 <TouchableOpacity
                   style={[styles.addParticipantButton, { borderColor: theme.border, flex: 1 }]}

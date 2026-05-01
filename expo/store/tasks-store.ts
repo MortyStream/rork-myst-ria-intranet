@@ -2,9 +2,46 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Task, TaskComment, TaskStatus, TaskPriority } from '@/types/task';
-import { getSupabase } from '@/utils/supabase';
+import { getSupabase, subscribeToTasksList } from '@/utils/supabase';
 import { useNotificationsStore } from './notifications-store';
 import { useAuthStore } from './auth-store';
+import { usePendingQueueStore } from './pending-queue-store';
+import { getIsOnline } from '@/components/OfflineBanner';
+
+// Module-scoped : tient le cleanup de la souscription Realtime globale
+// (INSERT/UPDATE/DELETE sur la table tasks). Démarrée au login, arrêtée au logout.
+let _tasksRealtimeUnsubscribe: (() => void) | null = null;
+
+/** Démarre la sync Realtime de la liste des tâches. Idempotent. */
+export const startTasksRealtimeSync = () => {
+  if (_tasksRealtimeUnsubscribe) return; // déjà actif
+  _tasksRealtimeUnsubscribe = subscribeToTasksList({
+    onInsert: (newTask) => {
+      useTasksStore.setState((state) => {
+        if (state.tasks.some((t) => t.id === newTask.id)) return state; // dédup
+        return { tasks: [newTask, ...state.tasks] };
+      });
+    },
+    onUpdate: (updatedTask) => {
+      useTasksStore.setState((state) => ({
+        tasks: state.tasks.map((t) => (t.id === updatedTask.id ? updatedTask : t)),
+      }));
+    },
+    onDelete: (oldTask) => {
+      useTasksStore.setState((state) => ({
+        tasks: state.tasks.filter((t) => t.id !== oldTask.id),
+      }));
+    },
+  });
+};
+
+/** Stoppe la sync Realtime (logout). Idempotent. */
+export const stopTasksRealtimeSync = () => {
+  if (_tasksRealtimeUnsubscribe) {
+    _tasksRealtimeUnsubscribe();
+    _tasksRealtimeUnsubscribe = null;
+  }
+};
 
 const fetchTasksFromSupabase = async (): Promise<Task[]> => {
   const supabase = getSupabase();
@@ -32,6 +69,7 @@ interface TasksStore extends TasksState {
   validateTask: (id: string, validatorId: string) => Promise<void>;
   addComment: (taskId: string, userId: string, content: string) => Promise<void>;
   deleteComment: (taskId: string, commentId: string) => Promise<void>;
+  toggleCommentReaction: (taskId: string, commentId: string, emoji: string, userId: string) => Promise<void>;
   getTaskById: (id: string) => Task | undefined;
   getUserTasks: (userId: string) => Task[];
   getCategoryTasks: (categoryId: string) => Task[];
@@ -169,7 +207,22 @@ export const useTasksStore = create<TasksStore>()(
           ),
         }));
 
-        // Push vers Supabase en arrière-plan
+        // Hors ligne → on enqueue l'action et on garde l'optimistic state.
+        // Le worker rejouera quand le réseau revient (cf. queue-worker.ts).
+        if (!getIsOnline()) {
+          usePendingQueueStore.getState().enqueue({
+            type: 'task:updateStatus',
+            params: {
+              id,
+              status,
+              completedAt: updateFields.completedAt,
+              completedBy: updateFields.completedBy,
+            },
+          });
+          return;
+        }
+
+        // Online : push vers Supabase en arrière-plan
         try {
           const { data, error } = await supabase
             .from('tasks')
@@ -183,10 +236,22 @@ export const useTasksStore = create<TasksStore>()(
             tasks: state.tasks.map((t) => (t.id === id ? data : t)),
           }));
         } catch (err) {
-          // Rollback : on remet l'état d'avant
+          // Si on est passé offline pendant la requête → on enqueue, on garde optimistic
+          if (!getIsOnline()) {
+            usePendingQueueStore.getState().enqueue({
+              type: 'task:updateStatus',
+              params: {
+                id,
+                status,
+                completedAt: updateFields.completedAt,
+                completedBy: updateFields.completedBy,
+              },
+            });
+            return;
+          }
+          // Rollback : on remet l'état d'avant (vraie erreur API/RLS)
           console.error('updateTaskStatus failed, rolling back:', err);
           set({ tasks: previousTasks });
-          // Toast non-bloquant (déjà présent dans Toast lib de l'app)
           try {
             const Toast = (await import('react-native-toast-message')).default;
             Toast.show({
@@ -225,23 +290,64 @@ export const useTasksStore = create<TasksStore>()(
         const task = get().getTaskById(taskId);
         if (!task) return;
         const newComment: TaskComment = {
-          id: `comment-${Date.now()}`,
+          id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
           taskId,
           userId,
           content,
           createdAt: new Date().toISOString(),
         };
         const updatedComments = [...(task.comments || []), newComment];
-        const { data, error } = await supabase
-          .from('tasks')
-          .update({ comments: updatedComments, updatedAt: new Date().toISOString() })
-          .eq('id', taskId)
-          .select()
-          .single();
-        if (error) throw error;
-        set(state => ({
-          tasks: state.tasks.map(t => t.id === taskId ? data : t)
+        const now = new Date().toISOString();
+
+        // ── UI OPTIMISTE ── (pas avant car le caller `handleSubmitComment`
+        // attendait la résolution avant de clear le champ — maintenant tout est instant)
+        const previousTasks = get().tasks;
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === taskId ? { ...t, comments: updatedComments, updatedAt: now } : t
+          ),
         }));
+
+        // Hors ligne → enqueue (worker rejoue avec idempotence sur comment.id)
+        if (!getIsOnline()) {
+          usePendingQueueStore.getState().enqueue({
+            type: 'task:addComment',
+            params: { taskId, comment: newComment },
+          });
+          return;
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from('tasks')
+            .update({ comments: updatedComments, updatedAt: now })
+            .eq('id', taskId)
+            .select()
+            .single();
+          if (error) throw error;
+          set((state) => ({
+            tasks: state.tasks.map((t) => (t.id === taskId ? data : t)),
+          }));
+        } catch (err) {
+          if (!getIsOnline()) {
+            usePendingQueueStore.getState().enqueue({
+              type: 'task:addComment',
+              params: { taskId, comment: newComment },
+            });
+            return;
+          }
+          console.error('addComment failed, rolling back:', err);
+          set({ tasks: previousTasks });
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'Le commentaire n\'a pas été enregistré.',
+            });
+          } catch {}
+          throw err;
+        }
       },
 
       deleteComment: async (taskId, commentId) => {
@@ -259,6 +365,78 @@ export const useTasksStore = create<TasksStore>()(
         set(state => ({
           tasks: state.tasks.map(t => t.id === taskId ? data : t)
         }));
+      },
+
+      toggleCommentReaction: async (taskId, commentId, emoji, userId) => {
+        const supabase = getSupabase();
+        const task = get().getTaskById(taskId);
+        if (!task) return;
+
+        // Calcule la nouvelle structure reactions du commentaire ciblé.
+        // Format : { '👍': ['userId1', 'userId2'], '❤️': ['userId3'] } sur le comment.
+        const updatedComments = (task.comments || []).map((c: any) => {
+          if (c.id !== commentId) return c;
+          const reactions: Record<string, string[]> = { ...(c.reactions || {}) };
+          const userIds: string[] = reactions[emoji] || [];
+          if (userIds.includes(userId)) {
+            const next = userIds.filter((uid) => uid !== userId);
+            if (next.length === 0) delete reactions[emoji];
+            else reactions[emoji] = next;
+          } else {
+            reactions[emoji] = [...userIds, userId];
+          }
+          return { ...c, reactions };
+        });
+
+        // ── UI OPTIMISTE ──
+        const previousTasks = get().tasks;
+        const now = new Date().toISOString();
+        set((state) => ({
+          tasks: state.tasks.map((t) =>
+            t.id === taskId ? { ...t, comments: updatedComments, updatedAt: now } : t
+          ),
+        }));
+
+        // Hors ligne → enqueue. Le worker recompute le toggle contre l'état serveur
+        // au moment du replay (last-write-wins).
+        if (!getIsOnline()) {
+          usePendingQueueStore.getState().enqueue({
+            type: 'task:toggleCommentReaction',
+            params: { taskId, commentId, emoji, userId },
+          });
+          return;
+        }
+
+        try {
+          const { data, error } = await supabase
+            .from('tasks')
+            .update({ comments: updatedComments, updatedAt: now })
+            .eq('id', taskId)
+            .select()
+            .single();
+          if (error) throw error;
+          set((state) => ({
+            tasks: state.tasks.map((t) => (t.id === taskId ? data : t)),
+          }));
+        } catch (err) {
+          if (!getIsOnline()) {
+            usePendingQueueStore.getState().enqueue({
+              type: 'task:toggleCommentReaction',
+              params: { taskId, commentId, emoji, userId },
+            });
+            return;
+          }
+          console.error('toggleCommentReaction failed, rolling back:', err);
+          set({ tasks: previousTasks });
+          try {
+            const Toast = (await import('react-native-toast-message')).default;
+            Toast.show({
+              type: 'error',
+              text1: 'Erreur',
+              text2: 'Réaction non enregistrée. Réessayez.',
+            });
+          } catch {}
+        }
       },
 
       getTaskById: (id) => get().tasks.find(t => t.id === id),

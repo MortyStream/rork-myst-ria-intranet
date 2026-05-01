@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -35,6 +35,7 @@ import {
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
+import { subscribeToTaskTyping } from '@/utils/supabase';
 
 interface TaskDetailProps {
   task: Task;
@@ -42,8 +43,8 @@ interface TaskDetailProps {
   onUpdate?: () => void;
 }
 
-export const TaskDetail: React.FC<TaskDetailProps> = ({ 
-  task, 
+export const TaskDetail: React.FC<TaskDetailProps> = ({
+  task: taskProp,
   onClose,
   onUpdate
 }) => {
@@ -51,16 +52,112 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const { getUserById } = useUsersStore();
   const { getCategoryById } = useResourcesStore();
   const { user } = useAuthStore();
-  const { 
-    updateTaskStatus, 
-    validateTask, 
-    addComment, 
-    sendTaskReminder 
+  const {
+    updateTaskStatus,
+    validateTask,
+    addComment,
+    sendTaskReminder,
+    toggleCommentReaction,
   } = useTasksStore();
   const theme = darkMode ? Colors.dark : Colors.light;
+
+  // Bind sur la row du store : quand le store est mis à jour (via addComment local OU
+  // via un event Realtime global reçu d'un autre user — cf. startTasksRealtimeSync
+  // dans _layout.tsx), TaskDetail re-render automatiquement avec les données fraîches.
+  // Fallback sur le prop initial si la row n'est pas (encore) dans le store.
+  const taskFromStore = useTasksStore((state) => state.tasks.find((t) => t.id === taskProp.id));
+  const task = taskFromStore ?? taskProp;
+
+  // Détection de suppression à distance : si la row était dans le store et
+  // disparaît (un admin ou le créateur l'a supprimée depuis un autre device),
+  // on prévient l'user avec un Toast et on ferme le modal automatiquement.
+  const wasInStoreRef = useRef(false);
+  useEffect(() => {
+    if (taskFromStore) {
+      wasInStoreRef.current = true;
+      return;
+    }
+    // taskFromStore est undefined : soit la row n'a jamais été chargée (initial),
+    // soit elle vient d'être supprimée. On distingue via le ref.
+    if (wasInStoreRef.current && taskProp?.id) {
+      (async () => {
+        try {
+          const Toast = (await import('react-native-toast-message')).default;
+          Toast.show({
+            type: 'info',
+            text1: 'Tâche supprimée',
+            text2: 'Cette tâche a été supprimée par un autre utilisateur.',
+            visibilityTime: 4000,
+          });
+        } catch {}
+        onClose();
+      })();
+    }
+  }, [taskFromStore, taskProp?.id, onClose]);
+
+  // ── Typing indicator (Realtime broadcast) ──
+  // typingUsers : autres users actuellement en train d'écrire dans le commentaire.
+  // Auto-clear après 5s sans nouveau broadcast (cas où l'autre user ferme l'app).
+  const [typingUsers, setTypingUsers] = useState<{ userId: string; firstName: string }[]>([]);
+  const sendTypingRef = useRef<((payload: any) => void) | null>(null);
+  const lastSentAtRef = useRef<number>(0);
+  const typingTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+
+  useEffect(() => {
+    if (!taskProp?.id || !user?.id) return;
+
+    const { sendTyping, unsubscribe } = subscribeToTaskTyping(taskProp.id, {
+      onTyping: (payload) => {
+        // Ignore self (au cas où config.broadcast.self serait pas respecté)
+        if (!payload?.userId || payload.userId === user.id) return;
+
+        setTypingUsers((prev) => {
+          if (prev.some((u) => u.userId === payload.userId)) return prev;
+          return [...prev, { userId: payload.userId, firstName: payload.firstName }];
+        });
+
+        // Reset le timer auto-clear pour cet user (5s après dernier event)
+        const existing = typingTimersRef.current[payload.userId];
+        if (existing) clearTimeout(existing);
+        typingTimersRef.current[payload.userId] = setTimeout(() => {
+          setTypingUsers((prev) => prev.filter((u) => u.userId !== payload.userId));
+          delete typingTimersRef.current[payload.userId];
+        }, 5000);
+      },
+    });
+
+    sendTypingRef.current = sendTyping;
+
+    return () => {
+      unsubscribe();
+      sendTypingRef.current = null;
+      Object.values(typingTimersRef.current).forEach(clearTimeout);
+      typingTimersRef.current = {};
+      setTypingUsers([]);
+    };
+  }, [taskProp?.id, user?.id]);
+
+  /**
+   * Wrapper autour de setNewComment qui broadcaste un event "typing" debouncé
+   * (max 1 fois toutes les 2.5s) → les autres users sur la même tâche voient
+   * "X est en train d'écrire...". Pas de spam WS même si l'user tape vite.
+   */
+  const handleCommentChange = (text: string) => {
+    setNewComment(text);
+    if (!user || !sendTypingRef.current || text.trim().length === 0) return;
+    const now = Date.now();
+    if (now - lastSentAtRef.current > 2500) {
+      sendTypingRef.current({ userId: user.id, firstName: user.firstName });
+      lastSentAtRef.current = now;
+    }
+  };
   
   const [newComment, setNewComment] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // ID du commentaire pour lequel le picker emoji est ouvert (null = fermé)
+  const [reactionPickerCommentId, setReactionPickerCommentId] = useState<string | null>(null);
+  // 4 emojis de base autorisés pour les réactions
+  const REACTION_EMOJIS = ['👍', '❤️', '🙏', '😂'];
   
   const category = getCategoryById(task.categoryId);
   const creator = getUserById(task.assignedBy);
@@ -196,6 +293,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const scrollViewRef = useRef<ScrollView>(null);
 
   return (
+    <>
     <Modal
       animationType="slide"
       transparent={true}
@@ -395,13 +493,25 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
               
               {task.comments && task.comments.length > 0 ? (
                 <View style={styles.commentsList}>
-                  {task.comments.map(comment => {
+                  {task.comments.map((comment: any) => {
                     const commenter = getUserById(comment.userId);
+                    const reactions: Record<string, string[]> = comment.reactions || {};
+                    const reactionEntries = Object.entries(reactions).filter(
+                      ([, userIds]) => Array.isArray(userIds) && userIds.length > 0
+                    );
+
                     return (
-                      <View key={comment.id} style={[
-                        styles.commentItem, 
-                        { backgroundColor: theme.card }
-                      ]}>
+                      <TouchableOpacity
+                        key={comment.id}
+                        style={[styles.commentItem, { backgroundColor: theme.card }]}
+                        onLongPress={async () => {
+                          const { mediumHaptic } = await import('@/utils/haptics');
+                          mediumHaptic();
+                          setReactionPickerCommentId(comment.id);
+                        }}
+                        delayLongPress={400}
+                        activeOpacity={0.85}
+                      >
                         <View style={styles.commentHeader}>
                           <View style={styles.commenterInfo}>
                             <Avatar
@@ -420,7 +530,41 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                         <Text style={[styles.commentContent, { color: theme.text }]}>
                           {comment.content}
                         </Text>
-                      </View>
+
+                        {/* Pills des réactions — visibles uniquement si au moins une réaction.
+                            Tap → toggle ma réaction sur cet emoji (rapide, sans rouvrir le picker). */}
+                        {reactionEntries.length > 0 && (
+                          <View style={styles.reactionsRow}>
+                            {reactionEntries.map(([emoji, userIds]) => {
+                              const reactedByMe = user ? (userIds as string[]).includes(user.id) : false;
+                              return (
+                                <TouchableOpacity
+                                  key={emoji}
+                                  onPress={async () => {
+                                    if (!user) return;
+                                    const { tapHaptic } = await import('@/utils/haptics');
+                                    tapHaptic();
+                                    await toggleCommentReaction(task.id, comment.id, emoji, user.id);
+                                  }}
+                                  activeOpacity={0.7}
+                                  style={[
+                                    styles.reactionPill,
+                                    {
+                                      backgroundColor: reactedByMe ? `${theme.primary}25` : (darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'),
+                                      borderColor: reactedByMe ? theme.primary : 'transparent',
+                                    },
+                                  ]}
+                                >
+                                  <Text style={styles.reactionEmoji}>{emoji}</Text>
+                                  <Text style={[styles.reactionCount, { color: reactedByMe ? theme.primary : theme.text }]}>
+                                    {(userIds as string[]).length}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )}
+                      </TouchableOpacity>
                     );
                   })}
                 </View>
@@ -431,54 +575,108 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
               )}
               
               {user && (
-                <View style={styles.addCommentContainer}>
-                  <TextInput
-                    style={[
-                      styles.commentInput,
-                      {
-                        color: theme.text,
-                        backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                        borderColor: theme.border,
-                      }
-                    ]}
-                    placeholder="Ajouter un commentaire..."
-                    placeholderTextColor={darkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)'}
-                    value={newComment}
-                    onChangeText={setNewComment}
-                    onFocus={() => {
-                      // Scroll vers le bas après un délai pour laisser le clavier s'ouvrir
-                      setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 250);
-                    }}
-                    multiline
-                  />
-                  <TouchableOpacity 
-                    style={[
-                      styles.sendButton,
-                      { backgroundColor: theme.primary },
-                      (!newComment.trim() || isSubmitting) && { opacity: 0.6 }
-                    ]}
-                    onPress={handleSubmitComment}
-                    disabled={!newComment.trim() || isSubmitting}
-                  >
-                    <Send size={20} color="#ffffff" />
-                  </TouchableOpacity>
-                </View>
+                <>
+                  {/* Indicateur "X est en train d'écrire..." (Realtime broadcast) */}
+                  {typingUsers.length > 0 && (
+                    <View style={styles.typingIndicator}>
+                      <Text style={[styles.typingText, { color: theme.primary }]}>
+                        {typingUsers.length === 1
+                          ? `${typingUsers[0].firstName} est en train d'écrire`
+                          : typingUsers.length === 2
+                            ? `${typingUsers[0].firstName} et ${typingUsers[1].firstName} sont en train d'écrire`
+                            : 'Plusieurs personnes sont en train d\'écrire'}
+                        <Text style={styles.typingDots}>...</Text>
+                      </Text>
+                    </View>
+                  )}
+                  <View style={styles.addCommentContainer}>
+                    <TextInput
+                      style={[
+                        styles.commentInput,
+                        {
+                          color: theme.text,
+                          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                          borderColor: theme.border,
+                        }
+                      ]}
+                      placeholder="Ajouter un commentaire..."
+                      placeholderTextColor={darkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)'}
+                      value={newComment}
+                      onChangeText={handleCommentChange}
+                      onFocus={() => {
+                        // Scroll vers le bas après un délai pour laisser le clavier s'ouvrir
+                        setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 250);
+                      }}
+                      multiline
+                    />
+                    <TouchableOpacity
+                      style={[
+                        styles.sendButton,
+                        { backgroundColor: theme.primary },
+                        (!newComment.trim() || isSubmitting) && { opacity: 0.6 }
+                      ]}
+                      onPress={handleSubmitComment}
+                      disabled={!newComment.trim() || isSubmitting}
+                    >
+                      <Send size={20} color="#ffffff" />
+                    </TouchableOpacity>
+                  </View>
+                </>
               )}
             </View>
           </ScrollView>
         </View>
       </KeyboardAvoidingView>
     </Modal>
+
+    {/* Reaction picker (popup centrée) — déclenché par long-press sur un commentaire.
+        Sibling Modal au-dessus du Modal principal pour ne pas perturber le keyboard. */}
+    <Modal
+      visible={reactionPickerCommentId !== null}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setReactionPickerCommentId(null)}
+    >
+      <TouchableOpacity
+        style={styles.reactionPickerBackdrop}
+        activeOpacity={1}
+        onPress={() => setReactionPickerCommentId(null)}
+      >
+        <View style={[styles.reactionPickerCard, { backgroundColor: theme.card }]}>
+          {REACTION_EMOJIS.map((emoji) => (
+            <TouchableOpacity
+              key={emoji}
+              onPress={async () => {
+                if (!user || !reactionPickerCommentId) return;
+                const { tapHaptic } = await import('@/utils/haptics');
+                tapHaptic();
+                const targetCommentId = reactionPickerCommentId;
+                setReactionPickerCommentId(null);
+                await toggleCommentReaction(task.id, targetCommentId, emoji, user.id);
+              }}
+              activeOpacity={0.6}
+              style={styles.reactionPickerButton}
+            >
+              <Text style={styles.reactionPickerEmoji}>{emoji}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </TouchableOpacity>
+    </Modal>
+    </>
   );
 };
 
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    justifyContent: 'flex-end',
   },
   modalContent: {
-    height: '90%',
+    // marginTop + flex:1 (au lieu de height:'90%' + justifyContent:flex-end)
+    // pour que le contenu remplisse jusqu'au bord bas de l'écran, même quand
+    // le KeyboardAvoidingView recompose la hauteur lors d'une bascule clavier.
+    marginTop: '10%',
+    flex: 1,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
@@ -608,11 +806,77 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
   },
+  // Pills de réactions (sous chaque commentaire qui en a)
+  reactionsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+  },
+  reactionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    gap: 4,
+  },
+  reactionEmoji: {
+    fontSize: 14,
+  },
+  reactionCount: {
+    fontSize: 12,
+    fontWeight: '600',
+    minWidth: 8,
+  },
+  // Picker emoji popup (long-press sur un commentaire)
+  reactionPickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionPickerCard: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 14,
+    borderRadius: 999,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  reactionPickerButton: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  reactionPickerEmoji: {
+    fontSize: 30,
+  },
   noCommentsText: {
     fontSize: 14,
     fontStyle: 'italic',
     textAlign: 'center',
     marginVertical: 16,
+  },
+  typingIndicator: {
+    paddingHorizontal: 4,
+    paddingBottom: 6,
+  },
+  typingText: {
+    fontSize: 12,
+    fontStyle: 'italic',
+    fontWeight: '500',
+  },
+  typingDots: {
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   addCommentContainer: {
     flexDirection: 'row',

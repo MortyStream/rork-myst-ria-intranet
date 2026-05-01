@@ -43,9 +43,8 @@ export default function CalendarScreen() {
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
 
   const [selectedDate, setSelectedDate] = useState(new Date());
-  // États du dialog de suppression custom
+  // État du dialog de suppression custom
   const [eventToDelete, setEventToDelete] = useState<Event | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
 
@@ -105,25 +104,38 @@ export default function CalendarScreen() {
   };
 
   const handleLongPressEvent = async (event: Event) => {
-    if (!canDeleteEvent(event)) return;
+    if (!canDeleteEvent(event)) {
+      // Feedback explicite : sinon l'user croit que le long-press marche pas alors
+      // qu'en fait il n'a juste pas les droits sur cet événement.
+      try {
+        const Toast = (await import('react-native-toast-message')).default;
+        Toast.show({
+          type: 'info',
+          text1: 'Action non autorisée',
+          text2: 'Seul un admin ou le créateur de l\'événement peut le supprimer.',
+        });
+      } catch {}
+      return;
+    }
     const { mediumHaptic } = await import('@/utils/haptics');
     mediumHaptic();
     setEventToDelete(event);
-    setConfirmDelete(false);
   };
 
   const performDeleteEvent = async () => {
-    if (!eventToDelete) return;
+    // Snapshot de l'id AVANT que ConfirmModal vide le state (onDismiss appelé
+    // synchroniquement avant action.onPress → eventToDelete = null sinon).
+    const idToDelete = eventToDelete?.id;
+    if (!idToDelete) return;
     try {
       const { warningHaptic } = await import('@/utils/haptics');
       warningHaptic();
-      await deleteEvent(eventToDelete.id);
+      await deleteEvent(idToDelete);
     } catch (e: any) {
       console.error('Delete event error:', e);
       Alert.alert('Erreur', `Impossible de supprimer l'événement.\n${e?.message ?? ''}`);
     } finally {
       setEventToDelete(null);
-      setConfirmDelete(false);
     }
   };
 
@@ -135,8 +147,8 @@ export default function CalendarScreen() {
       <TouchableOpacity
         style={[styles.eventItem, { backgroundColor: theme.card }]}
         onPress={() => handleEventPress(item.id)}
-        onLongPress={canDeleteEvent(item) ? () => handleLongPressEvent(item) : undefined}
-        delayLongPress={500}
+        onLongPress={() => handleLongPressEvent(item)}
+        delayLongPress={400}
       >
         <View style={[styles.eventColorIndicator, { backgroundColor: item.color || theme.primary }]} />
 
@@ -237,25 +249,11 @@ export default function CalendarScreen() {
           </View>
         </ScrollView>
 
-        {/* Dialog custom pour suppression d'événement (remplace Alert.alert) */}
-        {/* Étape 1 : menu d'actions */}
+        {/* Dialog custom pour suppression d'événement (remplace Alert.alert).
+            UN SEUL modal : on évitait avant le bug de chaîne où ConfirmModal appelle
+            onDismiss() AVANT action.onPress, ce qui vidait eventToDelete. */}
         <ConfirmModal
-          visible={eventToDelete !== null && !confirmDelete}
-          title={eventToDelete?.title ?? ''}
-          message="Que voulez-vous faire avec cet événement ?"
-          actions={[
-            { label: 'Annuler', style: 'cancel' },
-            {
-              label: 'Supprimer',
-              style: 'destructive',
-              onPress: () => setConfirmDelete(true),
-            },
-          ]}
-          onDismiss={() => setEventToDelete(null)}
-        />
-        {/* Étape 2 : confirmation finale (avec compte des participants impactés) */}
-        <ConfirmModal
-          visible={eventToDelete !== null && confirmDelete}
+          visible={eventToDelete !== null}
           title="Supprimer l'événement ?"
           message={(() => {
             if (!eventToDelete) return '';
@@ -266,13 +264,10 @@ export default function CalendarScreen() {
             return `${detail}\n\nCette action est définitive et ne peut pas être annulée.`;
           })()}
           actions={[
-            { label: 'Non', style: 'cancel', onPress: () => setConfirmDelete(false) },
-            { label: 'Oui, supprimer', style: 'destructive', onPress: performDeleteEvent },
+            { label: 'Annuler', style: 'cancel' },
+            { label: 'Supprimer', style: 'destructive', onPress: performDeleteEvent },
           ]}
-          onDismiss={() => {
-            setConfirmDelete(false);
-            setEventToDelete(null);
-          }}
+          onDismiss={() => setEventToDelete(null)}
         />
       </SafeAreaView>
     </AppLayout>

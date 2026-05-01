@@ -20,6 +20,7 @@ import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { UserListItem } from '@/components/UserListItem';
+import { UserRowSkeleton } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 
 export default function DirectoryScreen() {
@@ -101,14 +102,19 @@ export default function DirectoryScreen() {
   });
   
   const renderContent = () => {
-    if (isLoading && !isRefreshing) {
+    // Skeleton uniquement au 1er chargement (cache vide) — pas pendant un refresh
+    // pull-to-refresh, où l'user a déjà la liste à l'écran.
+    if (isLoading && users.length === 0 && !isRefreshing) {
       return (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={theme.primary} />
-          <Text style={[styles.loadingText, { color: theme.text }]}>
-            Chargement des utilisateurs...
-          </Text>
-        </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {Array.from({ length: 8 }).map((_, i) => (
+            <UserRowSkeleton key={i} />
+          ))}
+        </ScrollView>
       );
     }
 

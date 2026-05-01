@@ -17,6 +17,7 @@
     "@rork-ai/toolkit-sdk": "latest",
     "@supabase/auth-js": "2.65.0",
     "@supabase/postgrest-js": "1.15.8",
+    "@supabase/realtime-js": "^2.105.1",
     "date-fns": "^4.1.0",
     "expo": "~54.0.33",
     "expo-asset": "~12.0.12",

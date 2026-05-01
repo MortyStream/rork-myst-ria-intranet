@@ -2,15 +2,18 @@ import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoTrueClient } from '@supabase/auth-js';
 import { PostgrestClient } from '@supabase/postgrest-js';
+import { RealtimeClient } from '@supabase/realtime-js';
 
 const SUPABASE_URL = 'https://toefttzpdexugvfdqhfg.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvZWZ0dHpwZGV4dWd2ZmRxaGZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MDAwMTcsImV4cCI6MjA5MjE3NjAxN30.h2A3qTRXPkOR8qfQsY6c1pXOzAFAbvKv-6baR4Qm0wg';
 const SUPABASE_AUTH_URL = `${SUPABASE_URL}/auth/v1`;
 const SUPABASE_REST_URL = `${SUPABASE_URL}/rest/v1`;
+const SUPABASE_REALTIME_URL = `${SUPABASE_URL.replace('https://', 'wss://')}/realtime/v1`;
 const AUTH_STORAGE_KEY = 'mysteria-auth-storage';
 
 let supabaseInstance = null;
 let supabaseAdminInstance = null;
+let realtimeClientInstance = null;
 
 // Cache mémoire du token user actif. Mis à jour par cacheAccessToken() après
 // signInWithPassword/setSession pour éviter de dépendre de getSession() qui
@@ -20,9 +23,253 @@ let _cachedAccessToken = null;
 
 export const cacheAccessToken = (token) => {
   _cachedAccessToken = token ?? null;
+  // Propage le JWT au RealtimeClient si déjà instancié → les souscriptions WS
+  // utiliseront le token user (et donc respecteront RLS) au lieu du anon_key.
+  // Au logout (token=null), on retombe sur l'anon_key.
+  if (realtimeClientInstance) {
+    try {
+      realtimeClientInstance.setAuth(token ?? SUPABASE_ANON_KEY);
+    } catch (e) {
+      console.log('[Realtime] setAuth on cache update failed:', e?.message);
+    }
+  }
 };
 
 export const getCachedAccessToken = () => _cachedAccessToken;
+
+/**
+ * RealtimeClient lazy. Une seule instance pour toute l'app.
+ * setAuth est appelé au login (via cacheAccessToken) pour que les souscriptions
+ * WebSocket envoient le JWT user → RLS s'applique correctement.
+ */
+const getRealtimeClient = () => {
+  if (!realtimeClientInstance) {
+    realtimeClientInstance = new RealtimeClient(SUPABASE_REALTIME_URL, {
+      params: {
+        apikey: SUPABASE_ANON_KEY,
+        eventsPerSecond: 10,
+      },
+    });
+    // Si on a déjà un token (app rouverte avec session persistée), l'envoie tout de suite
+    if (_cachedAccessToken) {
+      try {
+        realtimeClientInstance.setAuth(_cachedAccessToken);
+      } catch (e) {
+        console.log('[Realtime] setAuth init failed:', e?.message);
+      }
+    }
+  }
+  return realtimeClientInstance;
+};
+
+/**
+ * Souscrit aux INSERT / UPDATE / DELETE sur la table `tasks` (toutes rows).
+ * Utilisé pour garder la liste des tâches du store sync en temps réel — quand
+ * un user crée une tâche pour quelqu'un d'autre, elle pop sans refresh.
+ *
+ * RLS s'applique : on ne reçoit que les rows que le user a le droit de SELECT.
+ *
+ * @param {{ onInsert?: (row: any) => void, onUpdate?: (row: any) => void, onDelete?: (row: any) => void }} handlers
+ * @returns {() => void} cleanup function
+ */
+export const subscribeToTasksList = ({ onInsert, onUpdate, onDelete }) => {
+  let cancelled = false;
+  let cleanup = null;
+
+  (async () => {
+    if (!_cachedAccessToken) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) cacheAccessToken(token);
+      } catch {
+        // Best-effort
+      }
+    }
+
+    if (cancelled) return;
+
+    const realtime = getRealtimeClient();
+    const channel = realtime.channel('tasks:list');
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'tasks' },
+        (payload) => { try { if (payload?.new && onInsert) onInsert(payload.new); } catch (e) { console.log('[Realtime] tasks:list INSERT cb error:', e?.message); } }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'tasks' },
+        (payload) => { try { if (payload?.new && onUpdate) onUpdate(payload.new); } catch (e) { console.log('[Realtime] tasks:list UPDATE cb error:', e?.message); } }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'tasks' },
+        (payload) => { try { if (payload?.old && onDelete) onDelete(payload.old); } catch (e) { console.log('[Realtime] tasks:list DELETE cb error:', e?.message); } }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] tasks:list →', status);
+      });
+
+    cleanup = () => {
+      try { channel.unsubscribe(); } catch (e) { console.log('[Realtime] tasks:list unsubscribe error:', e?.message); }
+    };
+  })();
+
+  return () => {
+    cancelled = true;
+    if (cleanup) cleanup();
+  };
+};
+
+/**
+ * Souscrit aux events broadcast `typing` sur une tâche donnée.
+ * Broadcast = WS éphémère, pas de persistance DB. Utilisé pour les indicateurs
+ * "X est en train d'écrire..." live entre 2 users qui ont la même task ouverte.
+ *
+ * Renvoie :
+ *  - `sendTyping(payload)` : émet un broadcast `typing` (le sender reçoit pas grâce à `self:false`)
+ *  - `unsubscribe()` : cleanup au unmount
+ *
+ * @param {string} taskId
+ * @param {{ onTyping: (payload: any) => void }} handlers
+ */
+export const subscribeToTaskTyping = (taskId, { onTyping }) => {
+  if (!taskId) return { sendTyping: () => {}, unsubscribe: () => {} };
+
+  let cancelled = false;
+  let channel = null;
+  let cleanup = null;
+
+  (async () => {
+    if (!_cachedAccessToken) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) cacheAccessToken(token);
+      } catch {
+        // Best-effort
+      }
+    }
+
+    if (cancelled) return;
+
+    const realtime = getRealtimeClient();
+    channel = realtime.channel(`tasks-typing:${taskId}`, {
+      config: { broadcast: { self: false } }, // pas d'echo au sender
+    });
+
+    channel
+      .on('broadcast', { event: 'typing' }, (msg) => {
+        try {
+          if (msg?.payload && onTyping) onTyping(msg.payload);
+        } catch (e) {
+          console.log('[Realtime] typing cb error:', e?.message);
+        }
+      })
+      .subscribe((status) => {
+        console.log(`[Realtime] tasks-typing:${taskId} →`, status);
+      });
+
+    cleanup = () => {
+      try { channel.unsubscribe(); } catch (e) { console.log('[Realtime] typing unsub error:', e?.message); }
+    };
+  })();
+
+  return {
+    sendTyping: (payload) => {
+      if (!channel) return;
+      try {
+        channel.send({ type: 'broadcast', event: 'typing', payload });
+      } catch (e) {
+        console.log('[Realtime] sendTyping error:', e?.message);
+      }
+    },
+    unsubscribe: () => {
+      cancelled = true;
+      if (cleanup) cleanup();
+    },
+  };
+};
+
+/**
+ * Souscrit aux UPDATE de la row `tasks` pour un taskId donné.
+ * Le callback reçoit la row complète (REPLICA IDENTITY FULL côté DB).
+ * Retourne une fonction de cleanup à appeler au unmount.
+ *
+ * Async-safe : si _cachedAccessToken n'est pas encore peuplé (cas app rouverte
+ * avec session persistée mais cacheAccessToken pas encore appelé), on récupère
+ * la session avant de subscribe — sinon le channel s'auth en anon, RLS bloque
+ * et on ne reçoit aucun event (=fail silencieux).
+ *
+ * @param {string} taskId
+ * @param {(updatedRow: any) => void} onUpdate
+ * @returns {() => void}
+ */
+export const subscribeToTask = (taskId, onUpdate) => {
+  if (!taskId) return () => {};
+
+  let cancelled = false;
+  let cleanup = null;
+
+  (async () => {
+    // 1. Garantir un JWT user pour le WS (sinon RLS bloque les events)
+    if (!_cachedAccessToken) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) cacheAccessToken(token); // propage aussi à realtime via setAuth
+      } catch {
+        // Best-effort, on continue (le channel échouera proprement si pas auth)
+      }
+    }
+
+    if (cancelled) return;
+
+    const realtime = getRealtimeClient();
+    // Channel unique par task → isolation des flows de souscription
+    const channel = realtime.channel(`tasks:${taskId}`);
+
+    channel
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'tasks',
+          filter: `id=eq.${taskId}`,
+        },
+        (payload) => {
+          try {
+            if (payload?.new) onUpdate(payload.new);
+          } catch (e) {
+            console.log('[Realtime] task callback error:', e?.message);
+          }
+        }
+      )
+      .subscribe((status) => {
+        // status possibles : 'SUBSCRIBED' | 'CHANNEL_ERROR' | 'TIMED_OUT' | 'CLOSED'
+        console.log(`[Realtime] tasks:${taskId} →`, status);
+      });
+
+    cleanup = () => {
+      try {
+        channel.unsubscribe();
+      } catch (e) {
+        console.log('[Realtime] unsubscribe error:', e?.message);
+      }
+    };
+  })();
+
+  return () => {
+    cancelled = true;
+    if (cleanup) cleanup();
+  };
+};
 
 const authStorage = {
   getItem: async (key) => {

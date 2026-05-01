@@ -171,7 +171,7 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
       ]}
       onPress={onPress}
       onLongPress={onLongPress}
-      delayLongPress={500}
+      delayLongPress={400}
       activeOpacity={0.7}
     >
       <View style={styles.header}>

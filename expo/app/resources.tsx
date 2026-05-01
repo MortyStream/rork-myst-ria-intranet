@@ -5,6 +5,7 @@ import { Search, Folder, FileText, Link as LinkIcon, Image as ImageIcon, AlignLe
 import { useResourcesStore } from '@/store/resources-store';
 import { ResourceCategory, ResourceItem, ResourceItemType } from '@/types/resource';
 import { ResourceItemList } from '@/components/ResourceItemList';
+import { CategoryRowSkeleton } from '@/components/Skeleton';
 import { EmptyState } from '@/components/EmptyState';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
@@ -173,12 +174,14 @@ export default function ResourcesScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {isLoading ? (
-            <EmptyState
-              title="Chargement..."
-              message="Récupération des catégories en cours."
-              icon="database"
-            />
+          {/* Skeleton uniquement au tout 1er chargement (cache vide). Si on a déjà
+              des catégories en cache (Zustand persist), on saute direct au vrai contenu. */}
+          {isLoading && categories.length === 0 ? (
+            <View style={styles.skeletonContainer}>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <CategoryRowSkeleton key={i} />
+              ))}
+            </View>
           ) : searchResults ? (
             renderSearchResults()
           ) : categories.length > 0 ? (
@@ -210,6 +213,7 @@ const styles = StyleSheet.create({
   searchInput: { marginBottom: 0 },
   scrollView: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingVertical: 6 },
+  skeletonContainer: { paddingTop: 6 },
   listContainer: { paddingHorizontal: 16, gap: 6 },
   searchResults: { paddingHorizontal: 16, gap: 8 },
   searchResultsLabel: { fontSize: 12, fontWeight: '600', marginBottom: 4, marginTop: 4 },

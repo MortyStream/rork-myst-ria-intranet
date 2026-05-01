@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -6,16 +6,22 @@ import {
   RefreshControl,
   Text,
   Alert,
+  TouchableOpacity,
+  Modal,
 } from 'react-native';
-import { Plus } from 'lucide-react-native';
+import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore } from '@/store/tasks-store';
-import { Colors } from '@/constants/colors';
+import { useUsersStore } from '@/store/users-store';
+import { useResourcesStore } from '@/store/resources-store';
+import { Colors, useAppColors } from '@/constants/colors';
 import { Button } from '@/components/Button';
+import { Input } from '@/components/Input';
 import { EmptyState } from '@/components/EmptyState';
 import { TaskItem } from '@/components/TaskItem';
+import { TaskItemSkeleton } from '@/components/Skeleton';
 import { TaskDetail } from '@/components/TaskDetail';
 import { TaskForm } from '@/components/TaskForm';
 import { ConfirmModal } from '@/components/ConfirmModal';
@@ -34,16 +40,31 @@ export default function TasksScreen() {
     updateTaskStatus,
     deleteTask,
   } = useTasksStore();
+  const isLoadingTasks = useTasksStore((state) => state.isLoading);
+  const allTasksCount = useTasksStore((state) => state.tasks.length);
+  const { getUserById } = useUsersStore();
+  const { getCategoryById, getVisibleCategories } = useResourcesStore();
 
   const theme = darkMode ? Colors.dark : Colors.light;
+  const appColors = useAppColors();
   const [refreshing, setRefreshing] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [filter, setFilter] = useState<'all' | 'pending' | 'completed'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
-  // États du dialog de suppression custom (remplace Alert.alert)
+  // État du dialog de suppression custom (remplace Alert.alert)
   const [taskToDelete, setTaskToDelete] = useState<Task | null>(null);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  // ── Filtres avancés (chips combinables) ──
+  // Scope (OR entre eux) : tâches assignées + tâches créées par moi
+  const [chipMine, setChipMine] = useState(false);
+  const [chipCreated, setChipCreated] = useState(false);
+  // Attributs (AND avec le reste)
+  const [chipHighPriority, setChipHighPriority] = useState(false);
+  const [chipOverdue, setChipOverdue] = useState(false);
+  // Catégorie : null = pas de filtre, sinon ID de la catégorie
+  const [chipCategoryId, setChipCategoryId] = useState<string | null>(null);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   useEffect(() => {
     initializeTasks().then(() => {
@@ -53,20 +74,90 @@ export default function TasksScreen() {
   
   const userTasks = user ? getUserTasks(user.id) : [];
   const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
-  
-  const pendingTasks = userTasks.filter(task => 
-    task.assignedTo.includes(user?.id || '') && 
+
+  const pendingTasks = userTasks.filter(task =>
+    task.assignedTo.includes(user?.id || '') &&
     (task.status === 'pending' || task.status === 'in_progress')
   );
-  
-  const completedTasks = userTasks.filter(task => 
-    task.assignedTo.includes(user?.id || '') && 
+
+  const completedTasks = userTasks.filter(task =>
+    task.assignedTo.includes(user?.id || '') &&
     (task.status === 'completed' || task.status === 'validated')
   );
-  
-  const tasksToShow = filter === 'all' ? userTasks : 
-                     filter === 'pending' ? pendingTasks : 
+
+  // Recherche : titre / description / nom catégorie / nom-prénom des assignés.
+  // Insensible à la casse + ignore espaces de début/fin.
+  const trimmedQuery = searchQuery.trim().toLowerCase();
+  const isSearching = trimmedQuery.length > 0;
+
+  const matchesSearch = (task: Task): boolean => {
+    if (!isSearching) return true;
+    const q = trimmedQuery;
+    if (task.title?.toLowerCase().includes(q)) return true;
+    if (task.description?.toLowerCase().includes(q)) return true;
+    if (task.categoryId) {
+      const cat = getCategoryById(task.categoryId);
+      if (cat?.name?.toLowerCase().includes(q)) return true;
+    }
+    if (Array.isArray(task.assignedTo)) {
+      for (const uid of task.assignedTo) {
+        const u = getUserById(uid);
+        if (!u) continue;
+        const fullName = `${u.firstName ?? ''} ${u.lastName ?? ''}`.toLowerCase();
+        if (
+          u.firstName?.toLowerCase().includes(q) ||
+          u.lastName?.toLowerCase().includes(q) ||
+          fullName.includes(q)
+        ) return true;
+      }
+    }
+    return false;
+  };
+
+  // ── Filtres avancés (chips combinables) ──
+  // Modèle : chips de "scope" (Mes / Que j'ai créées) sont OR entre elles.
+  // Chips d'attributs (Catégorie, Priorité haute, En retard) sont AND avec tout.
+  // Dim "Scope" + Dim "Attribut" = AND (intersection cross-dimensions).
+  const hasAdvancedFilter = chipMine || chipCreated || chipHighPriority || chipOverdue || chipCategoryId !== null;
+
+  const matchesAdvanced = (task: Task): boolean => {
+    // Dimension Scope : Mes tâches OR Que j'ai créées (si l'une est active).
+    // Si aucune des deux n'est active → on accepte tous les userTasks (pas de filtre scope).
+    if (chipMine || chipCreated) {
+      const isMine = chipMine && user ? task.assignedTo?.includes(user.id) : false;
+      const isCreated = chipCreated && user ? task.assignedBy === user.id : false;
+      if (!isMine && !isCreated) return false;
+    }
+    // Catégorie
+    if (chipCategoryId && task.categoryId !== chipCategoryId) return false;
+    // Priorité haute
+    if (chipHighPriority && task.priority !== 'high') return false;
+    // En retard : deadline < now ET tâche non terminée
+    if (chipOverdue) {
+      if (!task.deadline) return false;
+      if (task.status === 'completed' || task.status === 'validated') return false;
+      if (new Date(task.deadline).getTime() >= Date.now()) return false;
+    }
+    return true;
+  };
+
+  // Si l'user tape qqch → on bypass les filtres (Toutes/À faire/Terminées) et on
+  // montre TOUS les résultats matchés peu importe leur état (cf. demande Kévin).
+  // Sinon → comportement classique des filtres + chips avancés en AND.
+  const tasksToShow = useMemo(() => {
+    if (isSearching) return userTasks.filter((t) => matchesSearch(t) && matchesAdvanced(t));
+    const baseList = filter === 'all' ? userTasks :
+                     filter === 'pending' ? pendingTasks :
                      completedTasks;
+    if (!hasAdvancedFilter) return baseList;
+    return baseList.filter(matchesAdvanced);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isSearching, trimmedQuery, filter,
+    userTasks, pendingTasks, completedTasks,
+    chipMine, chipCreated, chipHighPriority, chipOverdue, chipCategoryId,
+    hasAdvancedFilter,
+  ]);
   
   const onRefresh = React.useCallback(async () => {
     setRefreshing(true);
@@ -109,25 +200,38 @@ export default function TasksScreen() {
   };
 
   const handleLongPressTask = async (task: Task) => {
-    if (!canUserDelete(task)) return; // Pas le droit, on ne propose m\u00eame pas le menu
+    if (!canUserDelete(task)) {
+      // Feedback explicite : sinon l'user croit que le long-press marche pas alors
+      // qu'en fait il n'a juste pas les droits sur cette tache precise.
+      try {
+        const Toast = (await import('react-native-toast-message')).default;
+        Toast.show({
+          type: 'info',
+          text1: 'Action non autorisee',
+          text2: 'Seul un admin ou le createur de la tache peut la supprimer.',
+        });
+      } catch {}
+      return;
+    }
     const { mediumHaptic } = await import('@/utils/haptics');
     mediumHaptic();
     setTaskToDelete(task);
-    setConfirmDelete(false);
   };
 
   const performDeleteTask = async () => {
-    if (!taskToDelete) return;
+    // Snapshot de l'id AVANT que ConfirmModal vide le state (onDismiss appelé
+    // synchroniquement avant action.onPress → taskToDelete = null sinon).
+    const idToDelete = taskToDelete?.id;
+    if (!idToDelete) return;
     try {
       const { warningHaptic } = await import('@/utils/haptics');
       warningHaptic();
-      await deleteTask(taskToDelete.id);
+      await deleteTask(idToDelete);
     } catch (e: any) {
       console.error('Delete task error:', e);
       Alert.alert('Erreur', `Impossible de supprimer la t\u00e2che.\n${e?.message ?? ''}`);
     } finally {
       setTaskToDelete(null);
-      setConfirmDelete(false);
     }
   };
   
@@ -172,27 +276,96 @@ export default function TasksScreen() {
           containerStyle={styles.headerContainer}
         />
         
-        <View style={styles.filterContainer}>
-          <Button
-            title={`Toutes (${userTasks.length})`}
-            onPress={() => setFilter('all')}
-            variant={filter === 'all' ? 'primary' : 'text'}
-            style={styles.filterButton}
-          />
-          <Button
-            title={`À faire (${pendingTasks.length})`}
-            onPress={() => setFilter('pending')}
-            variant={filter === 'pending' ? 'primary' : 'text'}
-            style={styles.filterButton}
-          />
-          <Button
-            title={`Terminées (${completedTasks.length})`}
-            onPress={() => setFilter('completed')}
-            variant={filter === 'completed' ? 'primary' : 'text'}
-            style={styles.filterButton}
+        <View style={styles.searchContainer}>
+          <Input
+            placeholder="Rechercher une tâche..."
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            leftIcon={<Search size={20} color={darkMode ? '#ffffff' : '#333333'} />}
+            containerStyle={styles.searchInput}
           />
         </View>
-        
+
+        {/* Pendant une recherche : on cache les chips de filtre (la search bypass
+            les filtres et montre tous les résultats matchés peu importe l'état). */}
+        {!isSearching && (
+          <View style={styles.filterContainer}>
+            <Button
+              title={`Toutes (${userTasks.length})`}
+              onPress={() => setFilter('all')}
+              variant={filter === 'all' ? 'primary' : 'text'}
+              style={styles.filterButton}
+            />
+            <Button
+              title={`À faire (${pendingTasks.length})`}
+              onPress={() => setFilter('pending')}
+              variant={filter === 'pending' ? 'primary' : 'text'}
+              style={styles.filterButton}
+            />
+            <Button
+              title={`Terminées (${completedTasks.length})`}
+              onPress={() => setFilter('completed')}
+              variant={filter === 'completed' ? 'primary' : 'text'}
+              style={styles.filterButton}
+            />
+          </View>
+        )}
+
+        {/* Chips de filtres avancés combinables (Mes / Que j'ai créées /
+            Catégorie / Priorité haute / En retard). Toujours visibles, marchent
+            aussi en combinaison avec la recherche. */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.chipsScrollView}
+          contentContainerStyle={styles.chipsContent}
+        >
+          <FilterChip
+            label="Mes tâches"
+            icon={<User size={14} color={chipMine ? '#fff' : theme.text} />}
+            active={chipMine}
+            onPress={() => setChipMine((v) => !v)}
+            theme={theme}
+            primary={appColors.primary}
+          />
+          <FilterChip
+            label="Que j'ai créées"
+            icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
+            active={chipCreated}
+            onPress={() => setChipCreated((v) => !v)}
+            theme={theme}
+            primary={appColors.primary}
+          />
+          <FilterChip
+            label={chipCategoryId
+              ? `Catégorie: ${getCategoryById(chipCategoryId)?.name ?? '?'}`
+              : 'Par catégorie'
+            }
+            icon={<Folder size={14} color={chipCategoryId ? '#fff' : theme.text} />}
+            active={chipCategoryId !== null}
+            onPress={() => setShowCategoryPicker(true)}
+            onClear={chipCategoryId ? () => setChipCategoryId(null) : undefined}
+            theme={theme}
+            primary={appColors.primary}
+          />
+          <FilterChip
+            label="Priorité haute"
+            icon={<Flag size={14} color={chipHighPriority ? '#fff' : theme.error} />}
+            active={chipHighPriority}
+            onPress={() => setChipHighPriority((v) => !v)}
+            theme={theme}
+            primary={appColors.primary}
+          />
+          <FilterChip
+            label="En retard"
+            icon={<AlertCircle size={14} color={chipOverdue ? '#fff' : theme.error} />}
+            active={chipOverdue}
+            onPress={() => setChipOverdue((v) => !v)}
+            theme={theme}
+            primary={appColors.primary}
+          />
+        </ScrollView>
+
         <ScrollView
           style={styles.scrollView}
           contentContainerStyle={styles.scrollContent}
@@ -201,7 +374,20 @@ export default function TasksScreen() {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
-          {overdueTasks.length > 0 && filter !== 'completed' ? (
+          {/* Skeleton uniquement au tout 1er chargement (cache vide). Si on a déjà
+              des tâches en cache (Zustand persist), on saute direct au vrai contenu.
+              On masque tout le reste (sections + empty state) pendant le skeleton. */}
+          {isLoadingTasks && allTasksCount === 0 ? (
+            <View style={styles.section}>
+              {Array.from({ length: 4 }).map((_, i) => (
+                <TaskItemSkeleton key={i} />
+              ))}
+            </View>
+          ) : (
+          <>
+          {/* Section "En retard" : cachée pendant une recherche OU quand un filtre
+              avancé est actif (les overdue matchés apparaissent dans la liste principale). */}
+          {!isSearching && !hasAdvancedFilter && overdueTasks.length > 0 && filter !== 'completed' ? (
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.error }]}>
                 En retard ({overdueTasks.length})
@@ -213,15 +399,19 @@ export default function TasksScreen() {
                   onPress={() => handleTaskPress(task)}
                   onToggleDone={() => handleToggleDone(task)}
                   canToggleDone={canUserToggle(task)}
-                  onLongPress={canUserDelete(task) ? () => handleLongPressTask(task) : undefined}
+                  onLongPress={() => handleLongPressTask(task)}
                 />
               ))}
             </View>
           ) : null}
-          
+
           {tasksToShow.length > 0 ? (
             <View style={styles.section}>
-              {filter === 'all' ? (
+              {isSearching || hasAdvancedFilter ? (
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                  Résultats ({tasksToShow.length})
+                </Text>
+              ) : filter === 'all' ? (
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
                   Toutes les tâches
                 </Text>
@@ -233,23 +423,37 @@ export default function TasksScreen() {
                   onPress={() => handleTaskPress(task)}
                   onToggleDone={() => handleToggleDone(task)}
                   canToggleDone={canUserToggle(task)}
-                  onLongPress={canUserDelete(task) ? () => handleLongPressTask(task) : undefined}
+                  onLongPress={() => handleLongPressTask(task)}
                 />
               ))}
             </View>
           ) : (
             <EmptyState
-              icon="check-square"
-              title="Aucune tâche"
+              icon={isSearching || hasAdvancedFilter ? 'search' : 'check-square'}
+              title={isSearching || hasAdvancedFilter ? 'Aucun résultat' : 'Aucune tâche'}
               message={
-                filter === 'all' ? "Vous n'avez pas de tâches assignées." : 
-                filter === 'pending' ? "Vous n'avez pas de tâches en attente." : 
-                "Vous n'avez pas de tâches terminées."
+                isSearching
+                  ? `Aucune tâche ne correspond à « ${searchQuery.trim()} ».`
+                  : hasAdvancedFilter
+                    ? 'Aucune tâche ne correspond aux filtres sélectionnés.'
+                    : filter === 'all' ? "Vous n'avez pas de tâches assignées." :
+                      filter === 'pending' ? "Vous n'avez pas de tâches en attente." :
+                      "Vous n'avez pas de tâches terminées."
               }
+              actionLabel={hasAdvancedFilter && !isSearching ? 'Réinitialiser les filtres' : undefined}
+              onAction={hasAdvancedFilter && !isSearching ? () => {
+                setChipMine(false);
+                setChipCreated(false);
+                setChipHighPriority(false);
+                setChipOverdue(false);
+                setChipCategoryId(null);
+              } : undefined}
               style={styles.emptyState}
             />
           )}
-          
+          </>
+          )}
+
         </ScrollView>
         
         {selectedTask ? (
@@ -267,44 +471,166 @@ export default function TasksScreen() {
           />
         ) : null}
 
-        {/* Dialog custom pour suppression de tâche (remplace Alert.alert moche sur Android) */}
-        {/* Étape 1 : menu d'actions */}
+        {/* Dialog custom pour suppression de tâche (remplace Alert.alert moche sur Android).
+            UN SEUL modal : on évitait avant le bug de chaîne où ConfirmModal appelle
+            onDismiss() AVANT action.onPress, ce qui vidait taskToDelete et empêchait
+            le 2ème modal de s'ouvrir. Une seule confirmation suffit pour un long-press
+            qui est déjà un geste volontaire. */}
         <ConfirmModal
-          visible={taskToDelete !== null && !confirmDelete}
-          title={taskToDelete?.title ?? ''}
-          message="Que voulez-vous faire avec cette tâche ?"
-          actions={[
-            { label: 'Annuler', style: 'cancel' },
-            {
-              label: 'Supprimer',
-              style: 'destructive',
-              onPress: () => setConfirmDelete(true),
-            },
-          ]}
-          onDismiss={() => setTaskToDelete(null)}
-        />
-        {/* Étape 2 : confirmation finale */}
-        <ConfirmModal
-          visible={taskToDelete !== null && confirmDelete}
+          visible={taskToDelete !== null}
           title="Supprimer la tâche ?"
           message={`« ${taskToDelete?.title ?? ''} » sera supprimée définitivement.\n\nCette action est irréversible.`}
           actions={[
-            { label: 'Non', style: 'cancel', onPress: () => setConfirmDelete(false) },
-            { label: 'Oui, supprimer', style: 'destructive', onPress: performDeleteTask },
+            { label: 'Annuler', style: 'cancel' },
+            { label: 'Supprimer', style: 'destructive', onPress: performDeleteTask },
           ]}
-          onDismiss={() => {
-            setConfirmDelete(false);
-            setTaskToDelete(null);
-          }}
+          onDismiss={() => setTaskToDelete(null)}
         />
+
+        {/* Picker de catégorie pour le chip "Par catégorie" */}
+        <Modal
+          visible={showCategoryPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCategoryPicker(false)}
+        >
+          <TouchableOpacity
+            style={styles.pickerBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowCategoryPicker(false)}
+          >
+            <TouchableOpacity
+              style={[styles.pickerSheet, { backgroundColor: theme.card }]}
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.pickerHeader}>
+                <Text style={[styles.pickerTitle, { color: theme.text }]}>Filtrer par catégorie</Text>
+                <TouchableOpacity onPress={() => setShowCategoryPicker(false)} hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+                  <X size={22} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.pickerList} showsVerticalScrollIndicator={false}>
+                {chipCategoryId !== null && (
+                  <TouchableOpacity
+                    style={[styles.pickerRow, { borderBottomColor: theme.border }]}
+                    onPress={() => {
+                      setChipCategoryId(null);
+                      setShowCategoryPicker(false);
+                    }}
+                  >
+                    <Text style={[styles.pickerRowText, { color: theme.error, fontWeight: '600' }]}>
+                      Effacer le filtre
+                    </Text>
+                  </TouchableOpacity>
+                )}
+                {getVisibleCategories().map((cat) => {
+                  const selected = cat.id === chipCategoryId;
+                  return (
+                    <TouchableOpacity
+                      key={cat.id}
+                      style={[styles.pickerRow, { borderBottomColor: theme.border }]}
+                      onPress={() => {
+                        setChipCategoryId(cat.id);
+                        setShowCategoryPicker(false);
+                      }}
+                    >
+                      <Text style={[styles.pickerRowText, { color: theme.text }]}>
+                        {cat.icon ? `${cat.icon} ` : ''}{cat.name}
+                      </Text>
+                      {selected && <Check size={18} color={appColors.primary} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </SafeAreaView>
     </AppLayout>
   );
 }
 
+/**
+ * Petit chip réutilisable pour les filtres avancés.
+ * Active = rempli (couleur primaire de l'app), Inactif = outlined.
+ * `onClear` (optionnel) = X qui apparaît à droite quand le chip a une valeur stateful (ex. catégorie sélectionnée).
+ */
+const FilterChip: React.FC<{
+  label: string;
+  icon: React.ReactNode;
+  active: boolean;
+  onPress: () => void;
+  onClear?: () => void;
+  theme: typeof Colors.light;
+  primary: string;
+}> = ({ label, icon, active, onPress, onClear, theme, primary }) => (
+  <TouchableOpacity
+    onPress={async () => {
+      const { tapHaptic } = await import('@/utils/haptics');
+      tapHaptic();
+      onPress();
+    }}
+    activeOpacity={0.7}
+    style={[
+      chipStyles.chip,
+      {
+        backgroundColor: active ? primary : 'transparent',
+        borderColor: active ? primary : theme.border,
+      },
+    ]}
+  >
+    {icon}
+    <Text style={[chipStyles.chipText, { color: active ? '#fff' : theme.text }]} numberOfLines={1}>
+      {label}
+    </Text>
+    {onClear && (
+      <TouchableOpacity
+        onPress={async () => {
+          const { tapHaptic } = await import('@/utils/haptics');
+          tapHaptic();
+          onClear();
+        }}
+        hitSlop={{ top: 8, right: 8, bottom: 8, left: 6 }}
+        style={chipStyles.chipClear}
+      >
+        <X size={14} color={active ? '#fff' : theme.text} />
+      </TouchableOpacity>
+    )}
+  </TouchableOpacity>
+);
+
+const chipStyles = StyleSheet.create({
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+    marginRight: 8,
+  },
+  chipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: -0.1,
+  },
+  chipClear: {
+    marginLeft: 2,
+  },
+});
+
 const styles = StyleSheet.create({
   container: { flex: 1 },
   headerContainer: { marginTop: -8 },
+  searchContainer: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  searchInput: {
+    marginBottom: 0,
+  },
   filterContainer: {
     flexDirection: 'row',
     paddingHorizontal: 20,
@@ -312,6 +638,15 @@ const styles = StyleSheet.create({
     marginTop: -4,
   },
   filterButton: { marginRight: 8 },
+  // Row de chips horizontale (scrollable car peut dépasser la largeur)
+  chipsScrollView: {
+    flexGrow: 0,
+    marginBottom: 12,
+  },
+  chipsContent: {
+    paddingHorizontal: 20,
+    alignItems: 'center',
+  },
   scrollView: { flex: 1 },
   scrollContent: {
     paddingHorizontal: 20,
@@ -326,4 +661,43 @@ const styles = StyleSheet.create({
   },
   emptyState: { marginTop: 40 },
   addButton: { marginLeft: 8 },
+  // Modal picker de catégorie (bottom sheet style)
+  pickerBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    justifyContent: 'flex-end',
+  },
+  pickerSheet: {
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 16,
+    paddingBottom: 32,
+    maxHeight: '70%',
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 12,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  pickerList: {
+    paddingHorizontal: 20,
+  },
+  pickerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+  },
+  pickerRowText: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
 });

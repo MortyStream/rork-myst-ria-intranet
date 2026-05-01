@@ -31,6 +31,7 @@ import {
 } from 'lucide-react-native';
 import { Button } from './Button';
 import { Avatar } from './Avatar';
+import { ParticipantsStack } from './ParticipantsStack';
 
 interface TaskFormProps {
   categoryId?: string;
@@ -344,35 +345,13 @@ export const TaskForm: React.FC<TaskFormProps> = ({
               </TouchableOpacity>
 
               {assignedTo.length > 0 && (
-                <View style={styles.selectedUsersContainer}>
-                  {assignedTo.map(userId => {
-                    const selectedUser = users.find(u => u.id === userId);
-                    if (!selectedUser) return null;
-                    
-                    return (
-                      <View key={userId} style={[
-                        styles.selectedUserItem,
-                        { 
-                          backgroundColor: darkMode ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                        }
-                      ]}>
-                        <Avatar
-                          source={selectedUser.profileImage ? { uri: selectedUser.profileImage } : undefined}
-                          name={`${selectedUser.firstName} ${selectedUser.lastName}`}
-                          size={24}
-                        />
-                        <Text style={[styles.selectedUserName, { color: theme.text }]}>
-                          {selectedUser.firstName} {selectedUser.lastName}
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.removeUserButton}
-                          onPress={() => toggleUserSelection(userId)}
-                        >
-                          <X size={16} color={theme.error} />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
+                <View style={{ marginTop: 12 }}>
+                  <ParticipantsStack
+                    selectedIds={assignedTo}
+                    allUsers={users}
+                    onRemove={(userId) => toggleUserSelection(userId)}
+                    label={assignedTo.length > 1 ? 'personnes assignées' : 'personne assignée'}
+                  />
                 </View>
               )}
 

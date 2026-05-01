@@ -5,6 +5,8 @@ import { Event, EventParticipant } from '@/types/calendar';
 import { getSupabase } from '@/utils/supabase';
 import { useAuthStore } from './auth-store';
 import { useNotificationsStore } from './notifications-store';
+import { usePendingQueueStore } from './pending-queue-store';
+import { getIsOnline } from '@/components/OfflineBanner';
 
 const fetchEventsFromSupabase = async (): Promise<Event[]> => {
   const supabase = getSupabase();
@@ -178,7 +180,6 @@ export const useCalendarStore = create<CalendarStore>()(
         );
 
         // ── UI OPTIMISTE ──
-        // Snapshot du state pour rollback si l'API échoue
         const previousEvents = get().events;
 
         // Update local IMMÉDIAT — l'utilisateur voit son RSVP changer instantanément
@@ -191,6 +192,16 @@ export const useCalendarStore = create<CalendarStore>()(
               : e
           ),
         }));
+
+        // Hors ligne → enqueue. Le worker recompute le RSVP contre l'état
+        // serveur au moment du replay (last-write-wins).
+        if (!getIsOnline()) {
+          usePendingQueueStore.getState().enqueue({
+            type: 'event:updateParticipantStatus',
+            params: { eventId, userId, status },
+          });
+          return;
+        }
 
         // Push vers Supabase en arrière-plan
         try {
@@ -207,6 +218,13 @@ export const useCalendarStore = create<CalendarStore>()(
             events: state.events.map((e) => (e.id === eventId ? data : e)),
           }));
         } catch (err) {
+          if (!getIsOnline()) {
+            usePendingQueueStore.getState().enqueue({
+              type: 'event:updateParticipantStatus',
+              params: { eventId, userId, status },
+            });
+            return;
+          }
           console.error('updateParticipantStatus failed, rolling back:', err);
           set({ events: previousEvents });
           try {

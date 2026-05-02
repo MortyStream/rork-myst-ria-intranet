@@ -1,3 +1,19 @@
+// Client Supabase custom — POURQUOI on n'utilise PAS @supabase/supabase-js.
+//
+// On assemble nous-mêmes GoTrueClient (auth) + PostgrestClient (DB) +
+// RealtimeClient (WS) + un wrapper Storage maison. Ce choix répond à 3 besoins :
+//
+// 1. Cache JWT mémoire (_cachedAccessToken) propagé synchroniquement après
+//    signInWithPassword. Le SDK officiel s'appuie sur getSession() qui peut
+//    retourner null pendant 50-200ms post-login (timing AsyncStorage), ce
+//    qui causait des "user fantôme" et toutes les pages vides après login
+//    (cf. CLAUDE.md Hard Lesson 5.2).
+// 2. Contrôle total des headers de chaque fetch (Authorization, apikey).
+// 3. Bundle size réduit (on n'embarque pas tout le SDK).
+//
+// NE PAS "simplifier" en revenant au SDK officiel sans avoir une vraie
+// alternative testée pour la propagation JWT. Le bug est très subtil et
+// n'apparaît que dans certaines conditions de timing — facile à rater.
 import 'react-native-url-polyfill/auto';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { GoTrueClient } from '@supabase/auth-js';

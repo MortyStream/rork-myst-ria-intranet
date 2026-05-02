@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Platform, StyleSheet, View } from 'react-native';
@@ -68,6 +68,12 @@ export default function RootLayout() {
 
   // Register push token when a real user logs in (native only)
   useEffect(() => {
+    // Flag pour éviter d'assigner les listeners si le useEffect a été
+    // cleanup entre le `import().then()` et sa résolution (cas de race
+    // si user?.id change rapidement). Sans ça, les listeners créés après
+    // cleanup ne sont jamais remove → memory leak + double events.
+    let cancelled = false;
+
     if (user && user.id !== 'preview-user' && Platform.OS !== 'web') {
       registerPushToken(user.id);
 
@@ -76,6 +82,7 @@ export default function RootLayout() {
       const isExpoGo = (Constants as any).appOwnership === 'expo';
       if (!isExpoGo) {
         import('expo-notifications').then((Notifications) => {
+          if (cancelled) return;
           notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
             console.log('[Push] Notification reçue:', notification.request.content.title);
           });
@@ -87,24 +94,49 @@ export default function RootLayout() {
     }
 
     return () => {
+      cancelled = true;
       notificationListener.current?.remove();
       responseListener.current?.remove();
+      notificationListener.current = undefined;
+      responseListener.current = undefined;
     };
   }, [user?.id]);
 
   // Resync les notifs locales (rappels deadline tâches + 1h avant events)
-  // chaque fois que les tâches ou events changent. Backup offline du serveur.
+  // chaque fois que les CHAMPS PERTINENTS des tâches/events changent.
+  //
+  // Avant : on déclenchait sur [tasks, events] qui changent à chaque update
+  // Realtime (typing, reactions, comments...) → setTimeout perpétuellement
+  // re-cleanup → reminders jamais syncés en cas d'activité soutenue.
+  //
+  // Maintenant : on calcule une signature stable basée uniquement sur ce qui
+  // affecte les reminders (deadline, status, assignedTo pour tasks ;
+  // startTime pour events). Les comments / reactions / typing ne déclenchent
+  // plus le sync.
+  const tasksReminderKey = useMemo(
+    () => tasks.map((t: any) =>
+      `${t.id}|${t.deadline ?? ''}|${t.status ?? ''}|${(t.assignedTo ?? []).join(',')}`
+    ).join(';'),
+    [tasks]
+  );
+  const eventsReminderKey = useMemo(
+    () => events.map((e: any) =>
+      `${e.id}|${e.startTime ?? ''}|${(e.participants ?? []).map((p: any) => `${p.userId}:${p.status}`).join(',')}`
+    ).join(';'),
+    [events]
+  );
+
   useEffect(() => {
     if (!user?.id || user.id === 'preview-user') return;
-    // Debounce 500ms : si plusieurs updates arrivent d'un coup (initial load
-    // ou batch sync), on attend que ça se stabilise avant de tout reprogrammer.
+    // Debounce 500ms : absorbe les rafales de updates initial-load.
     const timeoutId = setTimeout(() => {
       syncLocalReminders(tasks as any, events as any, user.id).catch((err) => {
         console.log('[LocalNotif] sync from layout error:', err);
       });
     }, 500);
     return () => clearTimeout(timeoutId);
-  }, [user?.id, tasks, events]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, tasksReminderKey, eventsReminderKey]);
 
   // Update du badge sur l'icône de l'app à chaque changement des notifications.
   // Le badge reflète le nombre de notifs non lues pour l'user courant.

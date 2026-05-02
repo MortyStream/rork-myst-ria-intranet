@@ -27,7 +27,10 @@ interface NotificationItemProps {
  * Important : ne PAS faire de navigation interne ici (cas historique de double
  * routing avec le parent qui causait des conflits/no-op selon les cas).
  */
-export const NotificationItem: React.FC<NotificationItemProps> = ({
+// React.memo : évite re-render si la notif et les callbacks sont stables.
+// Critique avec la SectionList des notifs + Realtime sur INSERT (chaque
+// nouvelle notif fait re-render toute la liste sinon).
+const NotificationItemComponent: React.FC<NotificationItemProps> = ({
   notification,
   onPress,
   onLongPress,
@@ -196,6 +199,8 @@ export const NotificationItem: React.FC<NotificationItemProps> = ({
     </TouchableOpacity>
   );
 };
+
+export const NotificationItem = React.memo(NotificationItemComponent);
 
 const styles = StyleSheet.create({
   container: {

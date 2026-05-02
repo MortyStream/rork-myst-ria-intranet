@@ -147,28 +147,41 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
 
       markAllAsRead: () => {
-        const previous = get().notifications;
+        // Capture uniquement les IDs qu'on touche RÉELLEMENT (les non-lues à T0).
+        // Avant : on snapshot tout l'array et au rollback on l'écrasait, ce qui
+        // annulait aussi les markAsRead intermédiaires faits par l'user ou un
+        // autre device (Realtime) entre l'optimistic et la réponse serveur.
         const now = new Date().toISOString();
-        const ids = get().notifications.filter(n => !n.read).map(n => n.id);
+        const idsToMark = get().notifications.filter(n => !n.read).map(n => n.id);
+        if (idsToMark.length === 0) return;
+
         set(state => ({
-          notifications: state.notifications.map(notification => ({
-            ...notification,
-            read: true,
-            updatedAt: now,
-          }))
+          notifications: state.notifications.map(notification =>
+            idsToMark.includes(notification.id)
+              ? { ...notification, read: true, updatedAt: now }
+              : notification
+          )
         }));
-        if (ids.length > 0) {
-          getSupabase()
-            .from('notifications')
-            .update({ read: true, updatedAt: now })
-            .in('id', ids)
-            .then(({ error }) => {
-              if (error) {
-                console.log('Erreur markAllAsRead Supabase, rollback:', error);
-                set({ notifications: previous });
-              }
-            });
-        }
+
+        getSupabase()
+          .from('notifications')
+          .update({ read: true, updatedAt: now })
+          .in('id', idsToMark)
+          .then(({ error }) => {
+            if (error) {
+              console.log('Erreur markAllAsRead Supabase, rollback ciblé:', error);
+              // Rollback ciblé : on remet read=false UNIQUEMENT sur les IDs
+              // qu'on avait touchés. Les autres notifs (lues entre-temps par
+              // un autre device, ou ajoutées) ne sont pas affectées.
+              set(state => ({
+                notifications: state.notifications.map(notification =>
+                  idsToMark.includes(notification.id)
+                    ? { ...notification, read: false }
+                    : notification
+                )
+              }));
+            }
+          });
       },
 
       deleteNotification: (id) => {

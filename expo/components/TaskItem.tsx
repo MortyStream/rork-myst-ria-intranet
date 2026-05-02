@@ -26,7 +26,11 @@ interface TaskItemProps {
   onLongPress?: () => void;
 }
 
-export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone, canToggleDone, onLongPress }) => {
+// React.memo : on évite le re-render quand la même row réapparaît dans le map
+// (cas Realtime — un autre user modifie une autre tâche, le store re-créé
+// l'array mais préserve les refs des tâches non touchées via .map identité).
+// Sans memo, chaque update Realtime re-render TOUTES les tasks de la liste.
+const TaskItemComponent: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone, canToggleDone, onLongPress }) => {
   const { darkMode } = useSettingsStore();
   const { getUserById } = useUsersStore();
   const { getCategoryById } = useResourcesStore();
@@ -274,6 +278,8 @@ export const TaskItem: React.FC<TaskItemProps> = ({ task, onPress, onToggleDone,
     </TouchableOpacity>
   );
 };
+
+export const TaskItem = React.memo(TaskItemComponent);
 
 const styles = StyleSheet.create({
   container: {

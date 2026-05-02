@@ -155,34 +155,18 @@ const executeAction = async (action: PendingAction): Promise<void> => {
       break;
     }
 
-    // ─── TASK : toggleCommentReaction (last-write-wins sur le toggle) ───
+    // ─── TASK : toggleCommentReaction (RPC atomique) ───
+    // Utilise la fonction Postgres toggle_comment_reaction qui SELECT FOR
+    // UPDATE → toggles sérialisés côté DB. Évite la perte de réactions
+    // simultanées (cf. fix V2 audit).
     case 'task:toggleCommentReaction': {
       const { taskId, commentId, emoji, userId } = action.params;
-      const { data: latest, error: fetchErr } = await supabase
-        .from('tasks')
-        .select('comments')
-        .eq('id', taskId)
-        .single();
-      if (fetchErr) throw fetchErr;
-
-      const comments: any[] = latest?.comments ?? [];
-      const updated = comments.map((c) => {
-        if (c.id !== commentId) return c;
-        const reactions: Record<string, string[]> = { ...(c.reactions || {}) };
-        const userIds: string[] = reactions[emoji] || [];
-        if (userIds.includes(userId)) {
-          const next = userIds.filter((uid) => uid !== userId);
-          if (next.length === 0) delete reactions[emoji];
-          else reactions[emoji] = next;
-        } else {
-          reactions[emoji] = [...userIds, userId];
-        }
-        return { ...c, reactions };
+      const { error } = await supabase.rpc('toggle_comment_reaction', {
+        p_task_id: taskId,
+        p_comment_id: commentId,
+        p_emoji: emoji,
+        p_user_id: userId,
       });
-      const { error } = await supabase
-        .from('tasks')
-        .update({ comments: updated, updatedAt: new Date().toISOString() })
-        .eq('id', taskId);
       if (error) throw error;
       break;
     }

@@ -372,9 +372,9 @@ export const useTasksStore = create<TasksStore>()(
         const task = get().getTaskById(taskId);
         if (!task) return;
 
-        // Calcule la nouvelle structure reactions du commentaire ciblé.
-        // Format : { '👍': ['userId1', 'userId2'], '❤️': ['userId3'] } sur le comment.
-        const updatedComments = (task.comments || []).map((c: any) => {
+        // ── UI OPTIMISTE (préservée pour la fluidité) ──
+        // Calcule localement la nouvelle structure pour update immédiat.
+        const optimisticComments = (task.comments || []).map((c: any) => {
           if (c.id !== commentId) return c;
           const reactions: Record<string, string[]> = { ...(c.reactions || {}) };
           const userIds: string[] = reactions[emoji] || [];
@@ -388,17 +388,15 @@ export const useTasksStore = create<TasksStore>()(
           return { ...c, reactions };
         });
 
-        // ── UI OPTIMISTE ──
         const previousTasks = get().tasks;
-        const now = new Date().toISOString();
+        const optimisticNow = new Date().toISOString();
         set((state) => ({
           tasks: state.tasks.map((t) =>
-            t.id === taskId ? { ...t, comments: updatedComments, updatedAt: now } : t
+            t.id === taskId ? { ...t, comments: optimisticComments, updatedAt: optimisticNow } : t
           ),
         }));
 
-        // Hors ligne → enqueue. Le worker recompute le toggle contre l'état serveur
-        // au moment du replay (last-write-wins).
+        // Hors ligne → enqueue. Le worker rejouera le toggle contre l'état serveur.
         if (!getIsOnline()) {
           usePendingQueueStore.getState().enqueue({
             type: 'task:toggleCommentReaction',
@@ -407,17 +405,26 @@ export const useTasksStore = create<TasksStore>()(
           return;
         }
 
+        // ── PERSISTANCE ATOMIQUE via RPC ──
+        // Avant : UPDATE direct du jsonb full-replace → 2 users simultanés
+        // → last-write-wins → une réaction perdue (cf. audit V2).
+        // Maintenant : RPC toggle_comment_reaction qui SELECT FOR UPDATE
+        // → toggles sérialisés côté DB → aucune perte.
         try {
-          const { data, error } = await supabase
-            .from('tasks')
-            .update({ comments: updatedComments, updatedAt: now })
-            .eq('id', taskId)
-            .select()
-            .single();
+          const { data, error } = await supabase.rpc('toggle_comment_reaction', {
+            p_task_id: taskId,
+            p_comment_id: commentId,
+            p_emoji: emoji,
+            p_user_id: userId,
+          });
           if (error) throw error;
-          set((state) => ({
-            tasks: state.tasks.map((t) => (t.id === taskId ? data : t)),
-          }));
+          // La RPC retourne la row complète (RETURNS public.tasks).
+          // Reconcilie le state local avec la version serveur autoritaire.
+          if (data) {
+            set((state) => ({
+              tasks: state.tasks.map((t) => (t.id === taskId ? data : t)),
+            }));
+          }
         } catch (err) {
           if (!getIsOnline()) {
             usePendingQueueStore.getState().enqueue({

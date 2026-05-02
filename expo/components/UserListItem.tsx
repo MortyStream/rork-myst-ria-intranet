@@ -15,7 +15,10 @@ interface UserListItemProps {
   showChevron?: boolean;
 }
 
-export const UserListItem: React.FC<UserListItemProps> = ({
+// React.memo : évite re-render des autres rows quand l'annuaire est trié
+// ou qu'un autre user change. Tous les hooks Zustand restent réactifs au
+// vrai changement de leur slice.
+const UserListItemComponent: React.FC<UserListItemProps> = ({
   user,
   onPress,
   showContactInfo = false,
@@ -115,6 +118,8 @@ export const UserListItem: React.FC<UserListItemProps> = ({
     </TouchableOpacity>
   );
 };
+
+export const UserListItem = React.memo(UserListItemComponent);
 
 const styles = StyleSheet.create({
   container: {

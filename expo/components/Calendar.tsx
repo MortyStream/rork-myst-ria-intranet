@@ -54,7 +54,7 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
 
   // Calcul réactif des jours + couleurs basé sur events + mois
   const calendarDays = useMemo(() => {
-    const days: Array<{ date: Date; isCurrentMonth: boolean; colors: string[] }> = [];
+    const days: Array<{ date: Date; isCurrentMonth: boolean; colors: string[]; total: number }> = [];
     const daysInMonth = getDaysInMonth(currentYear, currentMonth);
     const firstDayOfMonth = getFirstDayOfMonth(currentYear, currentMonth);
 
@@ -62,24 +62,30 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
     const prevMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
     const daysInPrevMonth = getDaysInMonth(prevMonthYear, prevMonth);
 
-    const getDayColors = (date: Date): string[] => {
+    // Renvoie les 3 premières couleurs ET le total — permet d'afficher "+N"
+    // pour les jours qui ont plus de 3 events (avant : truncation silencieuse).
+    const getDayInfo = (date: Date): { colors: string[]; total: number } => {
       const matching = events.filter(e => {
         const d = new Date(e.startTime);
         return isSameDay(d, date);
       });
-      // Limite à 3 pastilles pour ne pas déborder
-      return matching.slice(0, 3).map(e => e.color || theme.primary);
+      return {
+        colors: matching.slice(0, 3).map(e => e.color || theme.primary),
+        total: matching.length,
+      };
     };
 
     for (let i = 0; i < firstDayOfMonth; i++) {
       const day = daysInPrevMonth - firstDayOfMonth + i + 1;
       const date = new Date(prevMonthYear, prevMonth, day);
-      days.push({ date, isCurrentMonth: false, colors: getDayColors(date) });
+      const info = getDayInfo(date);
+      days.push({ date, isCurrentMonth: false, colors: info.colors, total: info.total });
     }
 
     for (let i = 1; i <= daysInMonth; i++) {
       const date = new Date(currentYear, currentMonth, i);
-      days.push({ date, isCurrentMonth: true, colors: getDayColors(date) });
+      const info = getDayInfo(date);
+      days.push({ date, isCurrentMonth: true, colors: info.colors, total: info.total });
     }
 
     const nextMonth = currentMonth === 11 ? 0 : currentMonth + 1;
@@ -88,7 +94,8 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
 
     for (let i = 1; i <= remainingDays; i++) {
       const date = new Date(nextMonthYear, nextMonth, i);
-      days.push({ date, isCurrentMonth: false, colors: getDayColors(date) });
+      const info = getDayInfo(date);
+      days.push({ date, isCurrentMonth: false, colors: info.colors, total: info.total });
     }
 
     return days;
@@ -194,6 +201,11 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
                         ]}
                       />
                     ))}
+                    {day.total > 3 && (
+                      <Text style={[styles.moreEventsText, { color: day.isCurrentMonth ? theme.text : (darkMode ? 'rgba(255,255,255,0.3)' : 'rgba(0,0,0,0.3)') }]}>
+                        +{day.total - 3}
+                      </Text>
+                    )}
                   </View>
                 )}
               </TouchableOpacity>
@@ -252,6 +264,7 @@ const styles = StyleSheet.create({
   dayCell: {
     flex: 1,
     aspectRatio: 1,
+    minHeight: 44, // évite les cellules trop petites sur iPhone SE / écrans étroits
     alignItems: 'center',
     justifyContent: 'center',
     padding: 2,
@@ -275,5 +288,11 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 3,
+  },
+  moreEventsText: {
+    fontSize: 9,
+    fontWeight: '700',
+    marginLeft: 1,
+    opacity: 0.7,
   },
 });

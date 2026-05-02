@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, StyleSheet, View, ViewStyle } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, StyleSheet, View, ViewStyle, LayoutChangeEvent } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
 
@@ -14,10 +15,15 @@ interface SkeletonProps {
   style?: ViewStyle;
 }
 
+const AnimatedLinearGradient = Animated.createAnimatedComponent(LinearGradient);
+
 /**
- * Rectangle gris animé (pulsation opacity 0.3 → 0.7) qui sert de placeholder
- * pendant le chargement. À composer pour reproduire la forme du contenu à venir
- * (ex. un TaskItemSkeleton compose plusieurs Skeleton pour titre + description + meta).
+ * Rectangle gris avec un shimmer wave (gradient sweep horizontal) qui glisse
+ * de gauche à droite en boucle. Plus moderne que la simple pulsation opacity
+ * — c'est le standard 2026 (Slack, Linear, Notion).
+ *
+ * À composer pour reproduire la forme du contenu à venir (ex. TaskItemSkeleton
+ * compose plusieurs Skeleton pour titre + description + meta).
  */
 export const Skeleton: React.FC<SkeletonProps> = ({
   width = '100%',
@@ -26,34 +32,63 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   style,
 }) => {
   const { darkMode } = useSettingsStore();
-  const opacity = useRef(new Animated.Value(0.35)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
+  const [measuredWidth, setMeasuredWidth] = useState(200);
 
   useEffect(() => {
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.75, duration: 800, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0.35, duration: 800, useNativeDriver: true }),
-      ])
+      Animated.timing(translateX, {
+        toValue: 1,
+        duration: 1400,
+        useNativeDriver: true,
+      })
     );
     loop.start();
-    return () => {
-      loop.stop();
-    };
-  }, [opacity]);
+    return () => loop.stop();
+  }, [translateX]);
+
+  const onLayout = (e: LayoutChangeEvent) => {
+    const w = e.nativeEvent.layout.width;
+    if (w > 0 && Math.abs(w - measuredWidth) > 1) setMeasuredWidth(w);
+  };
+
+  // Translate la barre brillante de -width à +width pour un sweep complet.
+  const translate = translateX.interpolate({
+    inputRange: [0, 1],
+    outputRange: [-measuredWidth, measuredWidth],
+  });
+
+  // Couleurs adaptées au mode : la barre brillante doit rester subtile sur
+  // le fond gris du skeleton (pas un flash blanc qui pique les yeux).
+  const baseBg = darkMode ? '#2e2e2e' : '#e6e6e6';
+  const shimmerColors: [string, string, string] = darkMode
+    ? ['rgba(255,255,255,0)', 'rgba(255,255,255,0.06)', 'rgba(255,255,255,0)']
+    : ['rgba(255,255,255,0)', 'rgba(255,255,255,0.7)', 'rgba(255,255,255,0)'];
 
   return (
-    <Animated.View
+    <View
+      onLayout={onLayout}
       style={[
         {
           width: width as any,
           height,
           borderRadius,
-          backgroundColor: darkMode ? '#3a3a3a' : '#e6e6e6',
-          opacity,
+          backgroundColor: baseBg,
+          overflow: 'hidden',
         },
         style,
       ]}
-    />
+    >
+      <AnimatedLinearGradient
+        colors={shimmerColors}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={[
+          StyleSheet.absoluteFillObject,
+          { transform: [{ translateX: translate }] },
+        ]}
+      />
+    </View>
   );
 };
 

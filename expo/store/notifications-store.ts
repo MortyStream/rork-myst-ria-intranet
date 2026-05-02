@@ -99,7 +99,12 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
       
       markAsRead: (id) => {
-        // UI optimiste : update local d'abord (déjà existant), avec rollback sur erreur
+        // Idempotence client : si déjà read, no-op. Évite les UPDATE redondants
+        // sur tap-tap-tap rapide (un déclenche, le 2e/3e seraient gaspillés).
+        const current = get().notifications.find(n => n.id === id);
+        if (!current || current.read) return;
+
+        // UI optimiste : update local d'abord, avec rollback sur erreur.
         const previous = get().notifications;
         const now = new Date().toISOString();
         set(state => ({

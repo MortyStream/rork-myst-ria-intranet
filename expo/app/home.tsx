@@ -294,12 +294,15 @@ export default function HomeScreen() {
                 </TouchableOpacity>
               ))
             ) : (
-              <Text style={[styles.emptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Vous n'avez pas de tâches à venir.
-              </Text>
+              <View style={styles.miniEmpty}>
+                <CheckSquare size={28} color={darkMode ? theme.inactive : '#999'} />
+                <Text style={[styles.miniEmptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                  Aucune tâche à venir.
+                </Text>
+              </View>
             )}
           </View>
-          
+
           {/* Upcoming Events */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
@@ -361,9 +364,12 @@ export default function HomeScreen() {
                 );
               })
             ) : (
-              <Text style={[styles.emptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Il n'y a pas d'événements à venir.
-              </Text>
+              <View style={styles.miniEmpty}>
+                <Calendar size={28} color={darkMode ? theme.inactive : '#999'} />
+                <Text style={[styles.miniEmptyText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                  Aucun événement à venir.
+                </Text>
+              </View>
             )}
           </View>
         </ScrollView>
@@ -533,11 +539,16 @@ const styles = StyleSheet.create({
   taskMetaText: {
     fontSize: 12,
   },
-  emptyText: {
+  miniEmpty: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 24,
+    gap: 8,
+  },
+  miniEmptyText: {
     fontSize: 14,
-    fontStyle: 'italic',
+    fontWeight: '500',
     textAlign: 'center',
-    marginVertical: 12,
   },
   eventItem: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { v4 as uuidv4 } from 'uuid';
 import { Task, TaskComment, TaskStatus, TaskPriority } from '@/types/task';
 import { getSupabase, subscribeToTasksList } from '@/utils/supabase';
 import { useNotificationsStore } from './notifications-store';
@@ -289,8 +290,12 @@ export const useTasksStore = create<TasksStore>()(
         const supabase = getSupabase();
         const task = get().getTaskById(taskId);
         if (!task) return;
+        // UUID v4 : zero collision même avec 2 users qui commentent à la même
+        // milliseconde. Avant : Date.now()+Math.random(36) → probabilité non
+        // nulle de collision sur le jsonb (le worker idempotency vérifie déjà
+        // par id, donc une collision aurait causé un drop silencieux).
         const newComment: TaskComment = {
-          id: `comment-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          id: uuidv4(),
           taskId,
           userId,
           content,

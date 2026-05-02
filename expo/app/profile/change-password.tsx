@@ -19,6 +19,7 @@ import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
+import { successHaptic } from '@/utils/haptics';
 
 export default function ChangePasswordScreen() {
   const router = useRouter();
@@ -97,7 +98,6 @@ export default function ChangePasswordScreen() {
         return;
       }
 
-      const { successHaptic } = await import('@/utils/haptics');
       successHaptic();
 
       Alert.alert(

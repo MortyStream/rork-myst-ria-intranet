@@ -45,6 +45,7 @@ import { Button } from '@/components/Button';
 import { Header } from '@/components/Header';
 import { Badge } from '@/components/Badge';
 import { AppLayout } from '@/components/AppLayout';
+import { successHaptic } from '@/utils/haptics';
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -203,7 +204,6 @@ export default function SettingsScreen() {
         console.warn('Mail composer error (non-bloquant):', mailError);
       }
 
-      const { successHaptic } = await import('@/utils/haptics');
       successHaptic();
 
       setReportSent(true);

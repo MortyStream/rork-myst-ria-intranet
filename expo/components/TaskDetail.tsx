@@ -37,6 +37,7 @@ import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
 import { subscribeToTaskTyping } from '@/utils/supabase';
+import { tapHaptic, mediumHaptic } from '@/utils/haptics';
 
 interface TaskDetailProps {
   task: Task;
@@ -279,7 +280,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
     setIsSubmitting(true);
 
     try {
-      const { tapHaptic } = await import('@/utils/haptics');
       tapHaptic();
       addComment(task.id, user.id, newComment.trim());
       setNewComment('');
@@ -516,7 +516,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                         key={comment.id}
                         style={[styles.commentItem, { backgroundColor: theme.card }]}
                         onLongPress={async () => {
-                          const { mediumHaptic } = await import('@/utils/haptics');
                           mediumHaptic();
                           setReactionPickerCommentId(comment.id);
                         }}
@@ -553,7 +552,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                                   key={emoji}
                                   onPress={async () => {
                                     if (!user) return;
-                                    const { tapHaptic } = await import('@/utils/haptics');
                                     tapHaptic();
                                     await toggleCommentReaction(task.id, comment.id, emoji, user.id);
                                   }}
@@ -659,7 +657,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
               key={emoji}
               onPress={async () => {
                 if (!user || !reactionPickerCommentId) return;
-                const { tapHaptic } = await import('@/utils/haptics');
                 tapHaptic();
                 const targetCommentId = reactionPickerCommentId;
                 setReactionPickerCommentId(null);

@@ -19,6 +19,7 @@ import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
+import { successHaptic } from '@/utils/haptics';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -48,7 +49,6 @@ export default function LoginScreen() {
           console.log('refreshUserData error (ignored):', e);
         }
         // Haptic success — feedback tactile que le login a marché
-        const { successHaptic } = await import('@/utils/haptics');
         successHaptic();
 
         // Premier login après installation → onboarding 3 écrans

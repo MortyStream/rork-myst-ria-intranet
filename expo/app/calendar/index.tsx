@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   StyleSheet,
   View,
@@ -30,6 +30,7 @@ import { Event } from '@/types/calendar';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 import { ConfirmModal } from '@/components/ConfirmModal';
+import { mediumHaptic, warningHaptic } from '@/utils/haptics';
 
 export default function CalendarScreen() {
   const router = useRouter();
@@ -52,8 +53,13 @@ export default function CalendarScreen() {
     initializeEvents();
   }, []);
 
-  // Recalcul réactif des events du jour à chaque changement de date ou de store
-  const events = getEventsByDate(selectedDate);
+  // Recalcul réactif des events du jour. Memoïsé sur la date + le contenu du
+  // store (storeEvents) pour éviter de re-filter à chaque render parent
+  // (ex : taps sur autres composants qui ne changent ni date ni events).
+  const events = useMemo(
+    () => getEventsByDate(selectedDate),
+    [selectedDate, storeEvents, getEventsByDate]
+  );
 
   const handleSelectDate = (date: Date) => {
     setSelectedDate(date);
@@ -117,7 +123,6 @@ export default function CalendarScreen() {
       } catch {}
       return;
     }
-    const { mediumHaptic } = await import('@/utils/haptics');
     mediumHaptic();
     setEventToDelete(event);
   };
@@ -128,7 +133,6 @@ export default function CalendarScreen() {
     const idToDelete = eventToDelete?.id;
     if (!idToDelete) return;
     try {
-      const { warningHaptic } = await import('@/utils/haptics');
       warningHaptic();
       await deleteEvent(idToDelete);
     } catch (e: any) {

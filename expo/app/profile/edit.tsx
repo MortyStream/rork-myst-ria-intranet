@@ -23,6 +23,7 @@ import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
 import { getSupabase } from '@/utils/supabase';
+import { successHaptic } from '@/utils/haptics';
 import { compressImage } from '@/utils/image-compression';
 import Toast from 'react-native-toast-message';
 
@@ -285,7 +286,6 @@ export default function EditProfileScreen() {
         profileImage
       });
       
-      const { successHaptic } = await import('@/utils/haptics');
       successHaptic();
 
       Toast.show({

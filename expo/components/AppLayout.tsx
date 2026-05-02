@@ -26,11 +26,17 @@ export const AppLayout: React.FC<AppLayoutProps> = ({
   const sidebarAnimation = useRef(new Animated.Value(0)).current;
   const overlayAnimation = useRef(new Animated.Value(0)).current;
   
-  // Close sidebar when route changes
+  // Close sidebar à chaque changement de route. On NE dépend PAS de
+  // toggleSidebar (qui se recrée à chaque update isSidebarOpen → re-fire
+  // l'effect en cascade). On déclenche directement les animations + setter.
   useEffect(() => {
-    if (isSidebarOpen) {
-      toggleSidebar();
-    }
+    if (!isSidebarOpen) return;
+    Animated.parallel([
+      Animated.timing(sidebarAnimation, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(overlayAnimation, { toValue: 0, duration: 300, useNativeDriver: true }),
+    ]).start();
+    setIsSidebarOpen(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
   
   const toggleSidebar = useCallback(() => {

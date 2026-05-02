@@ -280,14 +280,19 @@ export const useAuthStore = create<AuthStore>()(
             return true; // Déjà lié, ne rien faire
           }
 
-          // 3. Lie la row à l'auth user (la policy "first link" autorise ça si supabaseUserId IS NULL)
+          // 3. Lie la row à l'auth user. On filtre EXPLICITEMENT
+          // sur supabaseUserId IS NULL côté client : si la row est déjà liée
+          // à un autre auth user (cas edge : ré-utilisation d'email), l'UPDATE
+          // affecte 0 rows et le caller log proprement au lieu de tomber sur
+          // une erreur RLS confuse côté server.
           const { error: updateErr } = await supabase
             .from('users')
             .update({
               supabaseUserId: authUserId,
               updatedAt: new Date().toISOString(),
             })
-            .eq('id', byEmail.id);
+            .eq('id', byEmail.id)
+            .is('supabaseUserId', null);
 
           if (updateErr) {
             console.log('linkUserProfile: update échoué (non-bloquant):', updateErr.message);

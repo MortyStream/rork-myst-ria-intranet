@@ -28,6 +28,7 @@ import { ConfirmModal } from '@/components/ConfirmModal';
 import { Task } from '@/types/task';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
+import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
 
 export default function TasksScreen() {
   const { user } = useAuthStore();
@@ -173,7 +174,6 @@ export default function TasksScreen() {
     const isDone = task.status === 'completed' || task.status === 'validated';
     const nextStatus = isDone ? 'pending' : 'completed';
     // Haptic instant : feedback tactile d\u00e8s le tap, avant m\u00eame l'API call
-    const { tapHaptic } = await import('@/utils/haptics');
     tapHaptic();
     try {
       await updateTaskStatus(task.id, nextStatus);
@@ -213,7 +213,6 @@ export default function TasksScreen() {
       } catch {}
       return;
     }
-    const { mediumHaptic } = await import('@/utils/haptics');
     mediumHaptic();
     setTaskToDelete(task);
   };
@@ -224,7 +223,6 @@ export default function TasksScreen() {
     const idToDelete = taskToDelete?.id;
     if (!idToDelete) return;
     try {
-      const { warningHaptic } = await import('@/utils/haptics');
       warningHaptic();
       await deleteTask(idToDelete);
     } catch (e: any) {
@@ -567,7 +565,6 @@ const FilterChip: React.FC<{
 }> = ({ label, icon, active, onPress, onClear, theme, primary }) => (
   <TouchableOpacity
     onPress={async () => {
-      const { tapHaptic } = await import('@/utils/haptics');
       tapHaptic();
       onPress();
     }}
@@ -586,8 +583,7 @@ const FilterChip: React.FC<{
     </Text>
     {onClear && (
       <TouchableOpacity
-        onPress={async () => {
-          const { tapHaptic } = await import('@/utils/haptics');
+        onPress={() => {
           tapHaptic();
           onClear();
         }}

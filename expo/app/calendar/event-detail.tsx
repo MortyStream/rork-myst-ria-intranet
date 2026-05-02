@@ -37,6 +37,7 @@ import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
 import { Card } from '@/components/Card';
 import { EventParticipant } from '@/types/calendar';
+import { tapHaptic, warningHaptic, successHaptic } from '@/utils/haptics';
 
 export default function EventDetailScreen() {
   const router = useRouter();
@@ -138,7 +139,6 @@ export default function EventDetailScreen() {
                     text: 'Oui, supprimer',
                     style: 'destructive',
                     onPress: async () => {
-                      const { warningHaptic } = await import('@/utils/haptics');
                       warningHaptic();
                       await deleteEvent(event.id);
                       router.back();
@@ -195,7 +195,6 @@ ${event.location || ''}`;
     if (!user) return;
 
     // Haptic immédiat : success pour accepter, light pour décliner
-    const { successHaptic, tapHaptic } = await import('@/utils/haptics');
     if (status === 'confirmed') successHaptic();
     else tapHaptic();
 

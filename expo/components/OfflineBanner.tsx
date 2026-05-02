@@ -164,9 +164,22 @@ export const OfflineBanner: React.FC = () => {
       ]}
       pointerEvents="none"
     >
-      <View style={[styles.pill, { backgroundColor: theme.warning }]}>
-        <WifiOff size={14} color="#000" />
-        <Text style={styles.text} numberOfLines={1}>
+      <View
+        style={[
+          styles.pill,
+          darkMode
+            ? { backgroundColor: '#2a1f0b', borderWidth: 1, borderColor: theme.warning }
+            : { backgroundColor: theme.warning },
+        ]}
+      >
+        <WifiOff size={14} color={darkMode ? theme.warning : '#000'} />
+        <Text
+          style={[
+            styles.text,
+            { color: darkMode ? theme.warning : '#000' },
+          ]}
+          numberOfLines={1}
+        >
           {pendingCount > 0
             ? `Hors ligne · ${pendingCount} action${pendingCount > 1 ? 's' : ''} en attente`
             : 'Hors ligne'}
@@ -199,7 +212,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   text: {
-    color: '#000',
     fontSize: 13,
     fontWeight: '700',
     letterSpacing: 0.2,

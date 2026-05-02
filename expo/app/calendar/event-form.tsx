@@ -39,6 +39,7 @@ import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
+import { successHaptic } from '@/utils/haptics';
 import { Avatar } from '@/components/Avatar';
 import { ParticipantsStack } from '@/components/ParticipantsStack';
 import { User } from '@/types/user';
@@ -336,7 +337,6 @@ export default function EventFormScreen() {
         Alert.alert('Succès', 'Événement créé avec succès.');
       }
 
-      const { successHaptic } = await import('@/utils/haptics');
       successHaptic();
 
       router.back();

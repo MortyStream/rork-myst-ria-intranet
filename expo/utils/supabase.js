@@ -37,6 +37,11 @@ let realtimeClientInstance = null;
 // propage pas toujours sa session immédiatement vers AsyncStorage).
 let _cachedAccessToken = null;
 
+// Promise partagée pour le refresh : évite de fire 5x un refresh quand 5
+// requêtes parallèles reçoivent 401 en même temps. La première lance, les
+// autres attendent le même résultat.
+let _refreshPromise = null;
+
 export const cacheAccessToken = (token) => {
   _cachedAccessToken = token ?? null;
   // Propage le JWT au RealtimeClient si déjà instancié → les souscriptions WS
@@ -372,6 +377,35 @@ const createAuthClient = () => {
   });
 };
 
+/**
+ * Refresh la session Supabase une seule fois en parallèle (mutex via promise
+ * partagée). Plusieurs requêtes concurrentes qui reçoivent 401 vont share le
+ * même refresh au lieu de fire N en parallèle. Met à jour _cachedAccessToken
+ * et propage le nouveau token au RealtimeClient si présent.
+ *
+ * @returns {Promise<string|null>} le nouveau access_token ou null si refresh fail
+ */
+const refreshTokenOnce = async (authClient) => {
+  if (_refreshPromise) return _refreshPromise;
+  _refreshPromise = (async () => {
+    try {
+      const { data, error } = await authClient.refreshSession();
+      if (error || !data?.session?.access_token) return null;
+      const newToken = data.session.access_token;
+      _cachedAccessToken = newToken;
+      if (realtimeClientInstance) {
+        try { realtimeClientInstance.setAuth(newToken); } catch {}
+      }
+      return newToken;
+    } catch {
+      return null;
+    } finally {
+      _refreshPromise = null;
+    }
+  })();
+  return _refreshPromise;
+};
+
 const createPostgrestClient = (authClient) => {
   return new PostgrestClient(SUPABASE_REST_URL, {
     headers: {
@@ -392,10 +426,34 @@ const createPostgrestClient = (authClient) => {
           // ignore
         }
       }
-      const headers = new Headers(init?.headers ?? {});
-      headers.set('apikey', SUPABASE_ANON_KEY);
-      headers.set('Authorization', `Bearer ${accessToken ?? SUPABASE_ANON_KEY}`);
-      return fetch(input, { ...init, headers });
+
+      const buildHeaders = (token) => {
+        const h = new Headers(init?.headers ?? {});
+        h.set('apikey', SUPABASE_ANON_KEY);
+        h.set('Authorization', `Bearer ${token ?? SUPABASE_ANON_KEY}`);
+        return h;
+      };
+
+      const response = await fetch(input, { ...init, headers: buildHeaders(accessToken) });
+
+      // Intercepteur 401 → refresh → retry. Couvre le cas où le JWT expire
+      // pendant l'utilisation : avant, les requêtes partaient en silence en
+      // anon → RLS bloque → données vides confuses pour l'user.
+      // On ne retry que si :
+      //  - status 401 (jamais sur autres erreurs)
+      //  - on avait un vrai token user (pas l'anon_key, sinon refresh inutile)
+      //  - le refresh produit un nouveau token (sinon abandonner)
+      if (response.status === 401 && accessToken && accessToken !== SUPABASE_ANON_KEY) {
+        const newToken = await refreshTokenOnce(authClient);
+        if (newToken && newToken !== accessToken) {
+          // Retry UNE SEULE FOIS avec le token frais. Si ce 2e fetch
+          // retourne aussi 401, on remonte tel quel (probablement RLS,
+          // pas un problème de token).
+          return fetch(input, { ...init, headers: buildHeaders(newToken) });
+        }
+      }
+
+      return response;
     },
   });
 };

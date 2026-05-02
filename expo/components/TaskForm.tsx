@@ -48,11 +48,19 @@ export const TaskForm: React.FC<TaskFormProps> = ({
 }) => {
   const { darkMode } = useSettingsStore();
   const { user } = useAuthStore();
-  const { users } = useUsersStore();
+  const { users, initializeUsers } = useUsersStore();
   const { categories, isUserCategoryResponsible, initializeDefaultCategories } = useResourcesStore();
   useEffect(() => {
-  initializeDefaultCategories();
-}, []);
+    initializeDefaultCategories();
+    // Filet de sécurité : si le store users est vide au mount du form,
+    // déclencher un fetch. _layout.tsx l'init normalement au login, mais on
+    // se protège des cas edge (cache vidé, échec réseau initial, etc).
+    if (users.length === 0) {
+      initializeUsers().catch((err) => {
+        console.log('[TaskForm] users fallback init error:', err);
+      });
+    }
+  }, []);
   const { addTask, updateTask } = useTasksStore();
   const theme = darkMode ? Colors.dark : Colors.light;
 

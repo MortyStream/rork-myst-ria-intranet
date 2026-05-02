@@ -9,6 +9,7 @@ import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore, startTasksRealtimeSync, stopTasksRealtimeSync } from '@/store/tasks-store';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useNotificationsStore } from '@/store/notifications-store';
+import { useUsersStore } from '@/store/users-store';
 import { SplashScreen } from '@/components/SplashScreen';
 import { OfflineBanner } from '@/components/OfflineBanner';
 import { Colors } from '@/constants/colors';
@@ -117,6 +118,15 @@ export default function RootLayout() {
     }
     startTasksRealtimeSync();
     return () => stopTasksRealtimeSync();
+  }, [user?.id]);
+
+  // Init du store users au login. Sans ça, TaskForm ouvert avant tout passage
+  // sur /directory voit une liste vide → assignee picker vide (BUG-002 audit).
+  useEffect(() => {
+    if (!user?.id || user.id === 'preview-user') return;
+    useUsersStore.getState().initializeUsers().catch((err) => {
+      console.log('[Users] init from layout error:', err);
+    });
   }, [user?.id]);
 
   // Sync différée : drain la file d'actions offline.

@@ -99,13 +99,17 @@ export default function ProfileScreen() {
   };
   
   if (!user) {
+    // user null = soit l'hydration Zustand n'est pas encore finie (cas web
+    // refresh sur la route, le composant mount avant la rehydratation), soit
+    // l'user est vraiment déconnecté. Dans les 2 cas, montrer "Vous devez être
+    // connecté" est trompeur : l'utilisateur est connecté, c'est juste un
+    // timing T0. Un loader couvre l'hydratation ; si l'user est vraiment
+    // déconnecté, app/index.tsx l'aura déjà rerouté vers /login en amont.
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
         <Header title="Profil" showBackButton={true} onBackPress={() => router.back()} />
         <View style={styles.notLoggedInContainer}>
-          <Text style={[styles.notLoggedInText, { color: theme.text }]}>
-            Vous devez être connecté pour accéder à votre profil.
-          </Text>
+          <ActivityIndicator size="large" color={theme.primary} />
         </View>
       </SafeAreaView>
     );

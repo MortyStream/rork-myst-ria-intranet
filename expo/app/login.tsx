@@ -21,14 +21,13 @@ import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
-import { reinitializeSupabase } from '@/utils/supabase';
 
 const SAVED_CREDENTIALS_KEY = 'mysteria-saved-credentials';
 
 export default function LoginScreen() {
   const router = useRouter();
   const { login, isLoading, error, refreshUserData } = useAuthStore();
-  const { darkMode, appName, logoType, logoText, logoImageUrl, supabaseUrl, supabaseKey } = useSettingsStore();
+  const { darkMode, appName, logoType, logoText, logoImageUrl } = useSettingsStore();
   const appColors = useAppColors();
 
   const [username, setUsername] = useState('');
@@ -36,13 +35,6 @@ export default function LoginScreen() {
   const [formError, setFormError] = useState('');
   const [rememberMe, setRememberMe] = useState(false);
   const [savedCredentials, setSavedCredentials] = useState<{ email: string; password: string } | null>(null);
-
-  // Ensure Supabase is initialized with the current settings
-  useEffect(() => {
-    if (supabaseUrl && supabaseKey) {
-      reinitializeSupabase();
-    }
-  }, [supabaseUrl, supabaseKey]);
 
   // Charger les identifiants sauvegardés
   useEffect(() => {

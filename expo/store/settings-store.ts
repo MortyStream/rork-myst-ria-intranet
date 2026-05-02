@@ -57,9 +57,12 @@ const DEFAULT_LOGO_TYPE = "text";
 const DEFAULT_LOGO_TEXT = "M";
 const DEFAULT_LOGO_IMAGE_URL = "";
 
-// Default Supabase configuration
-const DEFAULT_SUPABASE_URL = "https://gwxyspmmczqqqrgmpmcf.supabase.co";
-const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imd3eHlzcG1tY3pxcXFyZ21wbWNmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDEyNzI2NzUsImV4cCI6MjA1Njg0ODY3NX0.0_r_O3qB5l3BB8dwxyL_GnH5ZXlsaQvnK2cAvXoQiBc";
+// Default Supabase configuration — alignée sur la vraie prod (utils/supabase.js).
+// Le settings store n'est pas la source de vérité pour le client Supabase
+// (qui hardcode son URL), mais on garde des valeurs cohérentes ici pour ne pas
+// induire en erreur le panneau admin /admin/database-config qui les affiche.
+const DEFAULT_SUPABASE_URL = "https://toefttzpdexugvfdqhfg.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRvZWZ0dHpwZGV4dWd2ZmRxaGZnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MDAwMTcsImV4cCI6MjA5MjE3NjAxN30.h2A3qTRXPkOR8qfQsY6c1pXOzAFAbvKv-6baR4Qm0wg";
 
 export const useSettingsStore = create<SettingsStore>()(
   persist(

@@ -45,8 +45,14 @@ export default function AdminScreen() {
   const canAccessAdmin = isAdmin || isModerator || isCommittee;
 
   useEffect(() => {
+    // Attendre que l'user soit hydraté avant de juger des droits. Sans cette
+    // garde, un cold mount sur /admin (web refresh, deep link) éjecterait
+    // l'user vers /login pendant la fenêtre de rehydratation Zustand —
+    // l'user a les droits, mais user?.role est encore undefined à T0.
+    if (!user) return;
     if (!canAccessAdmin) router.replace('/');
-  }, [canAccessAdmin]);
+  }, [user, canAccessAdmin]);
+  if (!user) return null;
   if (!canAccessAdmin) return null;
 
   const isSmallScreen = width < 380;

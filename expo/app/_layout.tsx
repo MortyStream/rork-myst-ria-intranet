@@ -26,6 +26,7 @@ import { subscribeToNotifications } from '@/utils/supabase';
 import { useInAppToastStore } from '@/store/in-app-toast-store';
 import { useResourcesStore } from '@/store/resources-store';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { toastConfig } from '@/components/ToastConfig';
 
 export default function RootLayout() {
   const { initializeAuth, user } = useAuthStore();
@@ -270,7 +271,8 @@ export default function RootLayout() {
       <OfflineBanner />
       {/* Toast in-app pop-up notifications (style WhatsApp) — au-dessus de tout */}
       <InAppNotificationToast />
-      <Toast />
+      {/* Toast custom : adapté au dark/light mode + accent par type (cf. ToastConfig) */}
+      <Toast config={toastConfig} />
     </GestureHandlerRootView>
   );
 }

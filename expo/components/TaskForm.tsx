@@ -114,22 +114,22 @@ export const TaskForm: React.FC<TaskFormProps> = ({
 
   const handleSave = () => {
     if (!title.trim()) {
-      Alert.alert('Erreur', 'Le titre est obligatoire.');
+      Toast.show({ type: 'error', text1: 'Titre manquant', text2: 'Donne un titre à la tâche.' });
       return;
     }
 
     if (!selectedCategoryId) {
-      Alert.alert('Erreur', 'Veuillez sélectionner une catégorie.');
+      Toast.show({ type: 'error', text1: 'Catégorie manquante', text2: 'Sélectionne une catégorie.' });
       return;
     }
 
     if (assignedTo.length === 0) {
-      Alert.alert('Erreur', 'Veuillez assigner la tâche à au moins une personne.');
+      Toast.show({ type: 'error', text1: 'Aucun assigné', text2: 'Assigne la tâche à au moins une personne.' });
       return;
     }
 
     if (!user) {
-      Alert.alert('Erreur', 'Vous devez être connecté pour créer une tâche.');
+      Toast.show({ type: 'error', text1: 'Erreur', text2: 'Tu dois être connecté.' });
       return;
     }
 
@@ -167,7 +167,7 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       onSave();
     } catch (error) {
       console.error('Error saving task:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'enregistrement de la tâche.');
+      Toast.show({ type: 'error', text1: 'Erreur', text2: "Impossible d'enregistrer la tâche." });
     } finally {
       setIsSubmitting(false);
     }

@@ -164,7 +164,7 @@ export default function EventFormScreen() {
       const newDate = new Date(picked);
       newDate.setHours(endDate.getHours(), endDate.getMinutes(), 0, 0);
       if (newDate < startDate) {
-        Alert.alert('Erreur', 'La date de fin ne peut pas être antérieure à la date de début.');
+        Toast.show({ type: 'error', text1: 'Dates invalides', text2: 'La fin ne peut pas être avant le début.' });
         return false;
       }
       setEndDate(newDate);
@@ -175,7 +175,7 @@ export default function EventFormScreen() {
         newDate.toDateString() === startDate.toDateString() &&
         newDate < startDate
       ) {
-        Alert.alert('Erreur', "L'heure de fin ne peut pas être antérieure à l'heure de début.");
+        Toast.show({ type: 'error', text1: 'Heures invalides', text2: "L'heure de fin ne peut pas être avant le début." });
         return false;
       }
       setEndDate(newDate);
@@ -353,7 +353,7 @@ export default function EventFormScreen() {
       router.back();
     } catch (error) {
       console.error('Error saving event:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'enregistrement.');
+      Toast.show({ type: 'error', text1: 'Erreur', text2: "Impossible d'enregistrer l'événement." });
     } finally {
       setIsSubmitting(false);
     }

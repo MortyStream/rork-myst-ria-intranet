@@ -104,7 +104,10 @@ async function createInAppNotification(
   }
 ): Promise<void> {
   const now = new Date().toISOString();
-  const id = `notification-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+  // crypto.randomUUID() (Deno natif) au lieu d'un id string non-UUID.
+  // Avant : `notification-${Date.now()}-...` → INSERT échouait silencieusement
+  // sur la colonne uuid → 0 notif créée par l'Edge function en DB.
+  const id = crypto.randomUUID();
   const { error } = await supabase.from("notifications").insert({
     id,
     title: payload.title,

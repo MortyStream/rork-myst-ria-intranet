@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { v4 as uuidv4 } from 'uuid';
 import { Notification } from '@/types/notification';
 import { useAuthStore } from './auth-store';
 import { useResourcesStore } from './resources-store';
@@ -68,9 +69,18 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
 
       addNotification: (notificationData) => {
+        // 🚨 BUG CRITIQUE résolu : avant on générait un id type
+        // `notification-${Date.now()}-${Math.random()...}` (string non-UUID).
+        // La colonne `notifications.id` est UUID NOT NULL → l'INSERT échouait
+        // silencieusement (juste un console.log) → toutes les notifs créées
+        // côté front (tâche assignée, invitation event, item Bible, etc.)
+        // restaient en local sur le device du créateur, jamais en DB →
+        // les autres users ne voyaient rien, le toast in-app ne fire pas,
+        // l'onglet notifications restait vide. Fix : uuid v4 cohérent
+        // avec le type uuid de la colonne.
         const newNotification: Notification = {
           ...notificationData,
-          id: `notification-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          id: uuidv4(),
           read: false,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),

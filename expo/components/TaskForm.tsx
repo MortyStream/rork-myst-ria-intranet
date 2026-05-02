@@ -30,6 +30,7 @@ import {
   CheckSquare,
 } from 'lucide-react-native';
 import { Button } from './Button';
+import Toast from 'react-native-toast-message';
 import { Avatar } from './Avatar';
 import { ParticipantsStack } from './ParticipantsStack';
 
@@ -149,11 +150,18 @@ export const TaskForm: React.FC<TaskFormProps> = ({
       if (task) {
         // Update existing task
         updateTask(task.id, taskData);
-        Alert.alert('Succès', 'La tâche a été mise à jour avec succès.');
+        Toast.show({
+          type: 'success',
+          text1: 'Tâche mise à jour',
+        });
       } else {
         // Create new task
         addTask(taskData);
-        Alert.alert('Succès', 'La tâche a été créée avec succès.');
+        Toast.show({
+          type: 'success',
+          text1: 'Tâche créée',
+          text2: title,
+        });
       }
 
       onSave();

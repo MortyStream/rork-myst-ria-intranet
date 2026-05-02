@@ -4,6 +4,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { v4 as uuidv4 } from 'uuid';
 import { User } from '@/types/user';
 import { getSupabase } from '@/utils/supabase';
+import { getIsOnline } from '@/components/OfflineBanner';
 
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
@@ -103,6 +104,24 @@ export const useUsersStore = create<UsersState>()(
       error: null,
 
       initializeUsers: async () => {
+        // Si on est hors ligne ET qu'on a déjà un cache local, ne PAS
+        // afficher d'erreur. L'user voit la liste cachée + le banner offline,
+        // c'est cohérent. Sans ce check, on tentait quand même 3 fetch qui
+        // tous échouent (Network request failed) puis on remplissait error
+        // → UI "Impossible de charger les utilisateurs" + bouton Réessayer.
+        if (!getIsOnline()) {
+          const cachedUsers = get().users;
+          if (cachedUsers.length > 0) {
+            console.log('Offline + cache present → skipping users fetch');
+            set({ isLoading: false, error: null });
+            return;
+          }
+          // Pas de cache : on ne peut rien afficher, mais on ne pollue pas
+          // avec une erreur réseau alarmante. L'OfflineBanner est déjà visible.
+          set({ isLoading: false, error: null });
+          return;
+        }
+
         set({ isLoading: true, error: null });
 
         // Retry simple sans réinitialiser le client Supabase global.
@@ -127,9 +146,12 @@ export const useUsersStore = create<UsersState>()(
               const existingUsers = get().users;
               const friendlyMessage = getFriendlyUsersErrorMessage(err);
               console.error('Error initializing users after all retries:', getErrorMessage(err));
+              // Si on est passé offline pendant les retries, on n'affiche pas
+              // d'erreur (même logique que le check initial).
+              const isOffline = !getIsOnline();
               set({
                 users: existingUsers,
-                error: friendlyMessage,
+                error: isOffline ? null : friendlyMessage,
                 isLoading: false,
               });
             }

@@ -201,6 +201,15 @@ export default function RootLayout() {
           if (!isAdmin && !targetsByRole && !isSubscribed) return;
         }
 
+        // Push la notif dans le store local pour qu'elle apparaisse dans
+        // l'onglet Notifications LIVE (sans pull-to-refresh). Dédup par id
+        // pour gérer le cas où le créateur a déjà l'optimistic en local +
+        // reçoit le Realtime de son propre INSERT.
+        useNotificationsStore.setState((state) => {
+          if (state.notifications.some((n) => n.id === notif.id)) return state;
+          return { notifications: [notif, ...state.notifications] };
+        });
+
         useInAppToastStore.getState().show(notif);
       } catch (err) {
         console.log('[Realtime] notifications filter error:', err);

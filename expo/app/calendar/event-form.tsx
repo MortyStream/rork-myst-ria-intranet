@@ -35,6 +35,7 @@ import { useUsersStore } from '@/store/users-store';
 import { useResourcesStore } from '@/store/resources-store';
 import { useUserGroupsStore } from '@/store/user-groups-store';
 import { useNotificationsStore } from '@/store/notifications-store';
+import Toast from 'react-native-toast-message';
 import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Input } from '@/components/Input';
@@ -330,11 +331,21 @@ export default function EventFormScreen() {
           }
         }
 
-        Alert.alert('Succès', `Événement mis à jour. ${additions.length > 0 ? `${additions.length} nouveau${additions.length > 1 ? 'x' : ''} participant${additions.length > 1 ? 's' : ''} invité${additions.length > 1 ? 's' : ''}.` : ''}`);
+        Toast.show({
+          type: 'success',
+          text1: 'Événement mis à jour',
+          text2: additions.length > 0
+            ? `${additions.length} nouveau${additions.length > 1 ? 'x' : ''} participant${additions.length > 1 ? 's' : ''} invité${additions.length > 1 ? 's' : ''}`
+            : undefined,
+        });
       } else {
         // Création d'un nouvel événement
         await addEvent(eventData, participants);
-        Alert.alert('Succès', 'Événement créé avec succès.');
+        Toast.show({
+          type: 'success',
+          text1: 'Événement créé',
+          text2: eventData.title,
+        });
       }
 
       successHaptic();

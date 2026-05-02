@@ -106,6 +106,25 @@ export const CategoryRowSkeleton: React.FC = () => {
 };
 
 /**
+ * Reproduit la forme d'une notification (icône carrée + titre + message + time).
+ */
+export const NotificationItemSkeleton: React.FC = () => {
+  const { darkMode } = useSettingsStore();
+  const theme = darkMode ? Colors.dark : Colors.light;
+  return (
+    <View style={[skeletonStyles.notifRow, { backgroundColor: theme.card }]}>
+      <Skeleton width={40} height={40} borderRadius={20} />
+      <View style={skeletonStyles.notifContent}>
+        <Skeleton width="55%" height={14} />
+        <Skeleton width="95%" height={11} style={{ marginTop: 8 }} />
+        <Skeleton width="70%" height={11} style={{ marginTop: 4 }} />
+        <Skeleton width={60} height={9} style={{ marginTop: 8 }} />
+      </View>
+    </View>
+  );
+};
+
+/**
  * Reproduit la forme d'une row d'annuaire (avatar + nom + email + role badge).
  */
 export const UserRowSkeleton: React.FC = () => {
@@ -176,6 +195,19 @@ const skeletonStyles = StyleSheet.create({
     gap: 12,
   },
   userContent: {
+    flex: 1,
+  },
+  // Notification
+  notifRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 14,
+    borderRadius: 14,
+    marginHorizontal: 16,
+    marginVertical: 4,
+    gap: 14,
+  },
+  notifContent: {
     flex: 1,
   },
 });

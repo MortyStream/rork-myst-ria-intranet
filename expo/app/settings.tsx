@@ -104,7 +104,7 @@ export default function SettingsScreen() {
     }
     const remaining = MAX_SCREENSHOTS - screenshotUris.length;
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ['images'],
       quality: 0.8,
       allowsMultipleSelection: true,
       selectionLimit: remaining,

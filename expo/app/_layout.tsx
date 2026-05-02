@@ -12,6 +12,7 @@ import { useNotificationsStore } from '@/store/notifications-store';
 import { useUsersStore } from '@/store/users-store';
 import { SplashScreen } from '@/components/SplashScreen';
 import { OfflineBanner } from '@/components/OfflineBanner';
+import { InAppNotificationToast } from '@/components/InAppNotificationToast';
 import { Colors } from '@/constants/colors';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Toast from 'react-native-toast-message';
@@ -21,6 +22,10 @@ import { syncLocalReminders, setAppBadge } from '@/utils/local-notifications';
 import { triggerFlush } from '@/utils/queue-worker';
 import { onNetworkTransition, getIsOnline } from '@/components/OfflineBanner';
 import { usePendingQueueStore } from '@/store/pending-queue-store';
+import { subscribeToNotifications } from '@/utils/supabase';
+import { useInAppToastStore } from '@/store/in-app-toast-store';
+import { useResourcesStore } from '@/store/resources-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function RootLayout() {
   const { initializeAuth, user } = useAuthStore();
@@ -45,6 +50,12 @@ export default function RootLayout() {
   useEffect(() => {
     const initApp = async () => {
       try {
+        // One-shot cleanup : la feature "Mémoriser identifiants" stockait
+        // email + password en clair dans AsyncStorage (clé legacy). Elle a
+        // été retirée au profit de l'auto-login via session Supabase. On
+        // purge les anciens credentials résiduels chez les users existants.
+        AsyncStorage.removeItem('mysteria-saved-credentials').catch(() => {});
+
         await initializeAuth();
         setTimeout(() => setIsLoading(false), 1000);
       } catch (error) {
@@ -129,6 +140,44 @@ export default function RootLayout() {
     });
   }, [user?.id]);
 
+  // Toast in-app : subscribe aux INSERT realtime sur la table notifications.
+  // Quand une nouvelle notif arrive et qu'elle est destinée à l'user courant,
+  // on affiche un toast slide-down style WhatsApp en haut de l'écran.
+  // Filtre identique à getUserNotifications() pour ne pas leak des notifs
+  // destinées à d'autres users (sécurité de défense en profondeur, la RLS
+  // côté Realtime devrait déjà les filtrer mais on double-check).
+  useEffect(() => {
+    if (!user?.id || user.id === 'preview-user') return;
+
+    const unsub = subscribeToNotifications((notif) => {
+      try {
+        const currentUser = user;
+        if (!currentUser) return;
+
+        const targetUserIds = Array.isArray(notif.targetUserIds) ? notif.targetUserIds : [];
+        const targetRoles = Array.isArray(notif.targetRoles) ? notif.targetRoles : [];
+        const isAdmin = currentUser.role === 'admin';
+
+        const hasExplicitTargets = targetUserIds.length > 0;
+        // Si la notif cible des users précis : ne montrer que si l'user en fait partie.
+        if (hasExplicitTargets && !targetUserIds.includes(currentUser.id)) return;
+
+        if (!hasExplicitTargets) {
+          const targetsByRole = targetRoles.includes(currentUser.role);
+          const subscriptions = useResourcesStore.getState().getUserSubscriptions(currentUser.id);
+          const isSubscribed = !!(notif.categoryId && subscriptions.includes(notif.categoryId));
+          if (!isAdmin && !targetsByRole && !isSubscribed) return;
+        }
+
+        useInAppToastStore.getState().show(notif);
+      } catch (err) {
+        console.log('[Realtime] notifications filter error:', err);
+      }
+    });
+
+    return () => unsub();
+  }, [user?.id]);
+
   // Sync différée : drain la file d'actions offline.
   //  - Au retour online (transition)
   //  - Au démarrage de l'app (après que NetInfo ait settle), si la queue contient
@@ -178,6 +227,8 @@ export default function RootLayout() {
       />
       {/* Banner "Hors ligne" — overlay au-dessus de tout, animation slide */}
       <OfflineBanner />
+      {/* Toast in-app pop-up notifications (style WhatsApp) — au-dessus de tout */}
+      <InAppNotificationToast />
       <Toast />
     </GestureHandlerRootView>
   );

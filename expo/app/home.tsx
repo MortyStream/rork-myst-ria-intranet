@@ -266,13 +266,13 @@ export default function HomeScreen() {
                 <TouchableOpacity
                   key={task.id}
                   style={[styles.taskItem, { backgroundColor: theme.card }]}
-                  onPress={() => navigateTo('/tasks')}
+                  onPress={() => router.push({ pathname: '/tasks', params: { highlightId: task.id } })}
                 >
-                  <View style={[styles.taskStatus, { 
-                    backgroundColor: task.status === 'pending' ? '#f59f00' : 
-                                    task.status === 'in_progress' ? '#4c6ef5' : 
-                                    task.status === 'completed' ? '#37b24d' : 
-                                    '#e03131'
+                  <View style={[styles.taskStatus, {
+                    backgroundColor: task.status === 'pending' ? theme.warning :
+                                    task.status === 'in_progress' ? theme.info :
+                                    task.status === 'completed' ? theme.success :
+                                    theme.error
                   }]} />
                   
                   <View style={styles.taskContent}>

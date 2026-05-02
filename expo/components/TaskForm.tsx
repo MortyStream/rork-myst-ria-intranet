@@ -611,7 +611,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   closeButton: {
-    padding: 4,
+    padding: 10, // touch target ≥ 44pt (icon 24 + padding 10*2 = 44)
   },
   scrollView: {
     flex: 1,

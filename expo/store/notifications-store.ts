@@ -18,6 +18,7 @@ interface NotificationsStore extends NotificationsState {
   initializeNotifications: () => Promise<void>;
   addNotification: (notification: Omit<Notification, 'id' | 'read' | 'createdAt' | 'updatedAt'>) => void;
   markAsRead: (id: string) => void;
+  markAsUnread: (id: string) => void;
   markAllAsRead: () => void;
   deleteNotification: (id: string) => void;
   getUnreadCount: () => number;
@@ -43,12 +44,16 @@ export const useNotificationsStore = create<NotificationsStore>()(
               .select('*')
               .order('createdAt', { ascending: false });
             if (error) throw error;
-            if (!data || data.length === 0) return;
+            // IMPORTANT : toujours réécrire le store, même si data est vide.
+            // Avant : `if (!data || data.length === 0) return;` qui gardait
+            // le cache local intact → les notifs supprimées en DB restaient
+            // fantômes en local indéfiniment, divergence DB ↔ UI.
+            const rows = data ?? [];
             set(state => {
               const localReadMap = new Map(state.notifications.map(n => [n.id, n.read]));
-              const merged = data.map((n: Notification) => ({
+              const merged = rows.map((n: Notification) => ({
                 ...n,
-                read: localReadMap.get(n.id) ?? false,
+                read: localReadMap.get(n.id) ?? n.read,
               }));
               return { notifications: merged };
             });
@@ -111,6 +116,31 @@ export const useNotificationsStore = create<NotificationsStore>()(
           .then(({ error }) => {
             if (error) {
               console.log('Erreur markAsRead Supabase, rollback:', error);
+              set({ notifications: previous });
+            }
+          });
+      },
+
+      markAsUnread: (id) => {
+        // Symétrique de markAsRead : optimistic + rollback. Permet à l'user
+        // de re-marquer une notif comme non-lue (cas "j'ai cliqué par erreur,
+        // je veux pas la traiter maintenant").
+        const previous = get().notifications;
+        const now = new Date().toISOString();
+        set(state => ({
+          notifications: state.notifications.map(notification =>
+            notification.id === id
+              ? { ...notification, read: false, updatedAt: now }
+              : notification
+          )
+        }));
+        getSupabase()
+          .from('notifications')
+          .update({ read: false, updatedAt: now })
+          .eq('id', id)
+          .then(({ error }) => {
+            if (error) {
+              console.log('Erreur markAsUnread Supabase, rollback:', error);
               set({ notifications: previous });
             }
           });

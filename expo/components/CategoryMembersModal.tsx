@@ -549,7 +549,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   closeButton: {
-    padding: 4,
+    padding: 10, // touch target ≥ 44pt
   },
   categoryInfo: {
     flexDirection: 'row',

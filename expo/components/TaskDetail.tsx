@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   ScrollView,
   TextInput,
-  Alert,
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -32,6 +31,8 @@ import {
   CheckSquare,
   PlayCircle
 } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
+import { useRouter } from 'expo-router';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
@@ -48,6 +49,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   onClose,
   onUpdate
 }) => {
+  const router = useRouter();
   const { darkMode } = useSettingsStore();
   const { getUserById } = useUsersStore();
   const { getCategoryById } = useResourcesStore();
@@ -238,37 +240,37 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   
   const handleStartTask = () => {
     if (!canUpdateStatus) return;
-    
+
     updateTaskStatus(task.id, 'in_progress');
     if (onUpdate) onUpdate();
-    
-    Alert.alert('Tâche mise à jour', 'La tâche a été marquée comme "En cours".');
+
+    Toast.show({ type: 'success', text1: 'Tâche démarrée', text2: 'Marquée comme "En cours".' });
   };
-  
+
   const handleCompleteTask = () => {
     if (!canUpdateStatus) return;
-    
+
     updateTaskStatus(task.id, 'completed');
     if (onUpdate) onUpdate();
-    
-    Alert.alert('Tâche terminée', 'La tâche a été marquée comme terminée.');
+
+    Toast.show({ type: 'success', text1: 'Tâche terminée' });
   };
-  
+
   const handleValidateTask = () => {
     if (!canValidate || !user) return;
-    
+
     validateTask(task.id, user.id);
     if (onUpdate) onUpdate();
-    
-    Alert.alert('Tâche validée', 'La tâche a été validée avec succès.');
+
+    Toast.show({ type: 'success', text1: 'Tâche validée' });
   };
-  
+
   const handleSendReminder = () => {
     if (!canSendReminder) return;
-    
+
     sendTaskReminder(task.id);
-    
-    Alert.alert('Rappel envoyé', 'Un rappel a été envoyé aux personnes assignées à cette tâche.');
+
+    Toast.show({ type: 'success', text1: 'Rappel envoyé', text2: 'Aux personnes assignées.' });
   };
   
   const handleSubmitComment = async () => {
@@ -284,7 +286,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error adding comment:', error);
-      Alert.alert('Erreur', 'Une erreur est survenue lors de l\'ajout du commentaire.');
+      Toast.show({ type: 'error', text1: 'Erreur', text2: "L'ajout du commentaire a échoué." });
     } finally {
       setIsSubmitting(false);
     }
@@ -425,7 +427,16 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
               </Text>
               <View style={styles.assigneesList}>
                 {assignees.map(assignee => (
-                  <View key={assignee.id} style={styles.assigneeItem}>
+                  <TouchableOpacity
+                    key={assignee.id}
+                    style={styles.assigneeItem}
+                    onPress={() => {
+                      onClose();
+                      router.push(`/user/${assignee.id}`);
+                    }}
+                    activeOpacity={0.6}
+                    accessibilityLabel={`Voir le profil de ${assignee.firstName} ${assignee.lastName}`}
+                  >
                     <Avatar
                       source={assignee.profileImage ? { uri: assignee.profileImage } : undefined}
                       name={`${assignee.firstName} ${assignee.lastName}`}
@@ -434,7 +445,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                     <Text style={[styles.assigneeName, { color: theme.text }]}>
                       {assignee.firstName} {assignee.lastName}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>
@@ -695,7 +706,7 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   closeButton: {
-    padding: 4,
+    padding: 10, // touch target ≥ 44pt (icon 24 + padding 10*2 = 44)
   },
   scrollView: {
     flex: 1,

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -8,21 +8,17 @@ import {
   Platform,
   ScrollView,
   Alert,
-  Switch,
   Image,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Lock, Mail } from 'lucide-react-native';
 
 const localLogo = require('../assets/images/logo.png');
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
 import { Input } from '@/components/Input';
 import { Button } from '@/components/Button';
-
-const SAVED_CREDENTIALS_KEY = 'mysteria-saved-credentials';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -33,43 +29,6 @@ export default function LoginScreen() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [formError, setFormError] = useState('');
-  const [rememberMe, setRememberMe] = useState(false);
-  const [savedCredentials, setSavedCredentials] = useState<{ email: string; password: string } | null>(null);
-
-  // Charger les identifiants sauvegardés
-  useEffect(() => {
-    AsyncStorage.getItem(SAVED_CREDENTIALS_KEY).then((raw) => {
-      if (raw) {
-        try {
-          const creds = JSON.parse(raw);
-          setSavedCredentials(creds);
-        } catch {}
-      }
-    });
-  }, []);
-
-  const doLogin = async (email: string, pwd: string) => {
-    await login(email, pwd);
-    const state = useAuthStore.getState();
-    // On se fie à isAuthenticated et à la présence d'un user — un "warning"
-    // non bloquant dans state.error ne doit pas empêcher la redirection.
-    if (state.isAuthenticated && state.user) {
-      try {
-        await refreshUserData();
-      } catch (e) {
-        console.log('refreshUserData error (ignored):', e);
-      }
-      // Haptic success — feedback tactile que le login a marché
-      const { successHaptic } = await import('@/utils/haptics');
-      successHaptic();
-
-      // Premier login après installation → onboarding 3 écrans
-      const { hasSeenOnboarding } = useSettingsStore.getState();
-      router.replace(hasSeenOnboarding ? '/home' : '/onboarding');
-      return true;
-    }
-    return false;
-  };
 
   const handleLogin = async () => {
     if (!username || !password) {
@@ -78,32 +37,27 @@ export default function LoginScreen() {
     }
     setFormError('');
     try {
-      const success = await doLogin(username, password);
-      if (success && rememberMe) {
-        await AsyncStorage.setItem(
-          SAVED_CREDENTIALS_KEY,
-          JSON.stringify({ email: username, password })
-        );
-        setSavedCredentials({ email: username, password });
+      await login(username, password);
+      const state = useAuthStore.getState();
+      // On se fie à isAuthenticated et à la présence d'un user — un "warning"
+      // non bloquant dans state.error ne doit pas empêcher la redirection.
+      if (state.isAuthenticated && state.user) {
+        try {
+          await refreshUserData();
+        } catch (e) {
+          console.log('refreshUserData error (ignored):', e);
+        }
+        // Haptic success — feedback tactile que le login a marché
+        const { successHaptic } = await import('@/utils/haptics');
+        successHaptic();
+
+        // Premier login après installation → onboarding 3 écrans
+        const { hasSeenOnboarding } = useSettingsStore.getState();
+        router.replace(hasSeenOnboarding ? '/home' : '/onboarding');
       }
     } catch (error: any) {
       Alert.alert('Erreur', `Connexion impossible: ${error.message || JSON.stringify(error)}`);
     }
-  };
-
-  const handleQuickLogin = async () => {
-    if (!savedCredentials) return;
-    setFormError('');
-    try {
-      await doLogin(savedCredentials.email, savedCredentials.password);
-    } catch (error: any) {
-      Alert.alert('Erreur', `Connexion rapide impossible: ${error.message || JSON.stringify(error)}`);
-    }
-  };
-
-  const handleForgetCredentials = async () => {
-    await AsyncStorage.removeItem(SAVED_CREDENTIALS_KEY);
-    setSavedCredentials(null);
   };
 
   const handleForgotPassword = () => {
@@ -121,13 +75,8 @@ export default function LoginScreen() {
   const logoTint = darkMode ? undefined : appColors.primary;
   const subtitleColor = darkMode ? theme.inactive : appColors.primary;
   const formBg = darkMode ? theme.card : '#f5f5f5';
-  const textColor = theme.text;
   const mutedColor = theme.inactive;
   const inputIconColor = darkMode ? theme.text : appColors.primary;
-  const quickLoginBg = darkMode ? 'rgba(255,255,255,0.08)' : `${appColors.primary}15`;
-  const quickLoginBorder = darkMode ? 'rgba(255,255,255,0.2)' : `${appColors.primary}40`;
-  const quickLoginTextColor = darkMode ? '#ffffff' : appColors.primary;
-  const forgetTextColor = darkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.35)';
 
   return (
     // View fixe — pas de composant recréé à chaque render (évite le bug clavier)
@@ -186,19 +135,6 @@ export default function LoginScreen() {
               </Text>
             )}
 
-            {/* Mémoriser mes identifiants */}
-            <View style={styles.rememberRow}>
-              <Switch
-                value={rememberMe}
-                onValueChange={setRememberMe}
-                trackColor={{ false: theme.border, true: appColors.primary }}
-                thumbColor="#ffffff"
-              />
-              <Text style={[styles.rememberText, { color: mutedColor }]}>
-                Mémoriser mes identifiants
-              </Text>
-            </View>
-
             <Button
               title="Se connecter"
               onPress={handleLogin}
@@ -206,25 +142,6 @@ export default function LoginScreen() {
               style={styles.loginButton}
               fullWidth
             />
-
-            {/* Connexion rapide — visible uniquement si des identifiants sont sauvegardés */}
-            {savedCredentials && (
-              <View style={styles.quickLoginContainer}>
-                <Button
-                  title={`⚡ Connexion rapide (${savedCredentials.email})`}
-                  onPress={handleQuickLogin}
-                  loading={isLoading}
-                  style={[styles.quickLoginButton, { backgroundColor: quickLoginBg, borderColor: quickLoginBorder }]}
-                  textStyle={[styles.quickLoginText, { color: quickLoginTextColor }]}
-                  fullWidth
-                />
-                <TouchableOpacity onPress={handleForgetCredentials} style={styles.forgetLink}>
-                  <Text style={[styles.forgetText, { color: forgetTextColor }]}>
-                    Oublier ces identifiants
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
 
             <TouchableOpacity
               onPress={handleForgotPassword}
@@ -300,34 +217,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     textAlign: 'center',
   },
-  rememberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 10,
-  },
-  rememberText: {
-    fontSize: 14,
-  },
   loginButton: {
     marginTop: 4,
-  },
-  quickLoginContainer: {
-    marginTop: 12,
-  },
-  quickLoginButton: {
-    borderWidth: 1,
-  },
-  quickLoginText: {
-    fontSize: 14,
-  },
-  forgetLink: {
-    alignItems: 'center',
-    marginTop: 6,
-  },
-  forgetText: {
-    fontSize: 12,
-    textDecorationLine: 'underline',
   },
   forgotPasswordButton: {
     marginTop: 16,

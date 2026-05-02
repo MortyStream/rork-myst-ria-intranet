@@ -139,7 +139,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   closeButton: {
-    padding: 4,
+    padding: 10, // touch target ≥ 44pt
   },
   content: {
     padding: 16,

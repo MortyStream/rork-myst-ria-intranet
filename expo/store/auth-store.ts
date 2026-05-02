@@ -12,6 +12,20 @@ import { clearAllLocalReminders, clearAppBadge } from '@/utils/local-notificatio
 // (n'importe quelles creds → accès admin via état initial). Tout est désormais à null
 // par défaut, et l'app oblige à passer par une vraie authentification Supabase.
 
+// Helper sûr pour extraire un message lisible depuis une valeur de catch typée unknown.
+// Avant ce helper, le code lisait `error.message` sans guard, ce qui crash si error
+// n'est pas un objet Error (string, undefined, objet API). Ne jamais re-jeter ici.
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const e = error as { message?: string; details?: string; hint?: string; code?: string };
+    const parts = [e.message, e.details, e.hint, e.code].filter((v): v is string => Boolean(v));
+    if (parts.length > 0) return parts.join(' · ');
+  }
+  try { return JSON.stringify(error); } catch { return 'Erreur inconnue'; }
+};
+
 const clearAuthState = (
   set: (partial: Partial<AuthStore>) => void,
   reason: string,
@@ -30,7 +44,7 @@ const clearAuthState = (
 interface AuthStore extends AuthState {
   user: User | null; // Explicitly adding user property to fix TypeScript error
   login: (username: string, password: string) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   updateUser: (user: User) => Promise<void>;
   resetPassword: (email: string) => Promise<void>;
   isFirstLogin: boolean;
@@ -447,40 +461,64 @@ export const useAuthStore = create<AuthStore>()(
           console.error('Full error object:', JSON.stringify(error, null, 2));
           
           // Set a more detailed error message
-          set({ 
-            error: `Error syncing user: ${error.message || JSON.stringify(error)}` 
+          set({
+            error: `Error syncing user: ${getErrorMessage(error)}`
           });
-          
+
           return false;
         }
       },
       
       initializeAuth: async () => {
         console.log('Initializing auth system...');
-        
+
         // Set initialization status
         get().setInitializationStatus('initializing');
-        
+
         try {
           // Check for existing session
           const supabase = getSupabase();
           const { data, error } = await supabase.auth.getSession();
-          
+
           if (error) {
             console.error('Error getting session:', error);
             console.error('Full error object:', JSON.stringify(error, null, 2));
             get().setInitializationStatus('error');
+            // Si on a une erreur réseau / transitoire MAIS qu'un user est
+            // déjà persisté dans Zustand (state local), on garde l'auth state
+            // pour ne pas éjecter l'user vers /login. Le retry naturel
+            // (auto-refresh, prochain reload) résoudra. C'est ce que font
+            // Facebook/Instagram/etc : pas de logout sur une erreur transitoire.
+            const persistedUser = get().user;
+            if (persistedUser?.supabaseUserId) {
+              console.log('Session error but persisted user exists — keeping logged in (graceful degradation)');
+              return true;
+            }
             return false;
           }
-          
+
           if (data.session) {
+            // CRITICAL : cacher le JWT TOUT DE SUITE pour que les requêtes
+            // Postgres qui suivent (linkUser, syncUser, fetch profile) partent
+            // avec le bon Authorization header. Sans ça, fenêtre de race où
+            // le fetch wrapper fallback en anon → RLS bloque → erreurs en
+            // cascade → clearAuthState → user éjecté à tort (cf. Hard Lesson 5.2).
+            cacheAccessToken(data.session.access_token);
+
             // Get user data
             const { data: userData, error: userError } = await supabase.auth.getUser();
-            
+
             if (userError) {
               console.error('Error getting user:', userError);
               console.error('Full error object:', JSON.stringify(userError, null, 2));
               get().setInitializationStatus('error');
+              // Idem : si user persisté dispo, on garde — la session JWT
+              // est valide (data.session existe), seul getUser a pété.
+              const persistedUser = get().user;
+              if (persistedUser?.supabaseUserId) {
+                console.log('getUser error but session + persisted user OK — keeping logged in');
+                return true;
+              }
               return false;
             }
             
@@ -618,6 +656,15 @@ export const useAuthStore = create<AuthStore>()(
           const errorMessage = error instanceof Error ? error.message : JSON.stringify(error);
 
           get().setInitializationStatus('error');
+          // Erreur potentiellement transitoire (réseau, timeout). Si on a
+          // déjà un user persisté en local, on le garde plutôt que d'éjecter
+          // — comportement standard des apps modernes (FB/Insta) qui
+          // tolèrent un offline temporaire en gardant la session locale.
+          const persistedUser = get().user;
+          if (persistedUser?.supabaseUserId) {
+            console.log('Init exception but persisted user exists — keeping logged in');
+            return true;
+          }
           return clearAuthState(set, `Auth initialization failed`, errorMessage);
         }
       },
@@ -732,7 +779,7 @@ export const useAuthStore = create<AuthStore>()(
               user: null,
               isAuthenticated: false,
               isLoading: false,
-              error: `Identifiants invalides: ${error.message}`,
+              error: `Identifiants invalides: ${getErrorMessage(error)}`,
             });
             return;
           }
@@ -776,7 +823,7 @@ export const useAuthStore = create<AuthStore>()(
                   .maybeSingle();
                 if (row) return row;
                 if (error && error.code !== 'PGRST116') {
-                  console.log(`fetchProfile by ${field} attempt ${i + 1} failed:`, error.message);
+                  console.log(`fetchProfile by ${field} attempt ${i + 1} failed:`, getErrorMessage(error));
                 }
                 if (i < attempts - 1) {
                   await new Promise<void>((r) => setTimeout(r, 200 * (i + 1)));
@@ -879,22 +926,29 @@ export const useAuthStore = create<AuthStore>()(
         } catch (error) {
           console.error('Login error:', error);
           console.error('Full error object:', JSON.stringify(error, null, 2));
-          set({ 
-            isLoading: false, 
-            error: 'Erreur de connexion: ' + (error.message || JSON.stringify(error))
+          set({
+            isLoading: false,
+            error: 'Erreur de connexion: ' + getErrorMessage(error),
           });
         }
       },
-      
-      logout: () => {
+
+      logout: async () => {
         try {
           console.log('Logging out');
 
           const currentUser = get().user;
 
-          // Remove push token from Supabase before signing out
+          // Remove push token from Supabase AVANT le signOut. On await pour
+          // garantir que la requête DELETE part avec le JWT valide — sinon
+          // signOut clear le token et la requête peut partir en anon → token
+          // reste en DB et l'user continuerait à recevoir des push fantômes.
           if (currentUser && currentUser.id !== 'preview-user') {
-            unregisterPushToken(currentUser.id);
+            try {
+              await unregisterPushToken(currentUser.id);
+            } catch (err) {
+              console.log('unregisterPushToken error (non-blocking):', getErrorMessage(err));
+            }
           }
 
           // Clear le cache du JWT — sinon le fetch wrapper continuerait
@@ -978,7 +1032,7 @@ export const useAuthStore = create<AuthStore>()(
           console.error('Full error object:', JSON.stringify(error, null, 2));
           set({ 
             isLoading: false, 
-            error: 'Erreur lors de la réinitialisation du mot de passe: ' + (error.message || JSON.stringify(error))
+            error: 'Erreur lors de la réinitialisation du mot de passe: ' + getErrorMessage(error),
           });
         }
       },
@@ -988,13 +1042,18 @@ export const useAuthStore = create<AuthStore>()(
       }
     }),
     {
-      name: 'mysteria-auth-storage',
+      // 🚨 IMPORTANT : cette clé NE DOIT PAS coïncider avec AUTH_STORAGE_KEY
+      // de utils/supabase.js (qui vaut 'mysteria-auth-storage' et stocke la
+      // session GoTrueClient). Avant v3, les deux utilisaient le même nom →
+      // Zustand persist écrasait la session JWT à chaque update du store →
+      // au cold start, getSession() lisait du JSON Zustand au lieu d'une
+      // session valide → parse fail → null → l'user était redirigé vers
+      // /login alors qu'il devrait être auto-loggué.
+      name: 'mysteria-auth-state',
       storage: createJSONStorage(() => AsyncStorage),
-      // Bump version pour invalider l'ancien état persisté contenant le preview-user admin.
-      // Avant ce fix, l'app démarrait avec `user: PREVIEW_USER, isAuthenticated: true`,
-      // état qui était sauvegardé dans AsyncStorage. Cette migration force tout user
-      // "preview-user" résiduel à null pour fermer la porte dérobée.
-      version: 2,
+      // version 2 → preview-user invalidation (cf. CLAUDE.md Hard Lesson 5.1)
+      // version 3 → migration vers la nouvelle clé pour résoudre la collision avec GoTrueClient
+      version: 3,
       migrate: (persistedState: unknown, fromVersion: number) => {
         const state = (persistedState ?? {}) as { user?: { id?: string } | null; isAuthenticated?: boolean };
         if (fromVersion < 2 && state.user?.id === 'preview-user') {
@@ -1005,6 +1064,10 @@ export const useAuthStore = create<AuthStore>()(
             storedCredentials: null,
           };
         }
+        // Pour la migration v2 → v3 : pas de transformation nécessaire,
+        // le simple changement de clé suffit. L'ancienne clé sera lue par
+        // GoTrueClient dorénavant (et son contenu sera corrigé au prochain
+        // login). Le state local repart de l'état persisté actuel.
         return state;
       },
       partialize: (state) => ({

@@ -141,6 +141,63 @@ export const subscribeToTasksList = ({ onInsert, onUpdate, onDelete }) => {
 };
 
 /**
+ * Souscrit aux INSERT sur la table `notifications` pour afficher un toast
+ * in-app (style WhatsApp slide-down) à la réception d'une nouvelle notif
+ * envoyée par l'Edge function ou un autre user.
+ *
+ * RLS s'applique : on ne reçoit que les notifs que le user courant peut SELECT.
+ * Le filtrage final (targetUserIds, targetRoles, abonnement catégorie, admin)
+ * est fait côté caller via la même logique que getUserNotifications().
+ *
+ * @param {(row: any) => void} onInsert
+ * @returns {() => void} cleanup function
+ */
+export const subscribeToNotifications = (onInsert) => {
+  let cancelled = false;
+  let cleanup = null;
+
+  (async () => {
+    if (!_cachedAccessToken) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) cacheAccessToken(token);
+      } catch {
+        // Best-effort
+      }
+    }
+
+    if (cancelled) return;
+
+    const realtime = getRealtimeClient();
+    const channel = realtime.channel('notifications:list');
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'notifications' },
+        (payload) => {
+          try { if (payload?.new && onInsert) onInsert(payload.new); }
+          catch (e) { console.log('[Realtime] notifications INSERT cb error:', e?.message); }
+        }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] notifications:list →', status);
+      });
+
+    cleanup = () => {
+      try { channel.unsubscribe(); } catch (e) { console.log('[Realtime] notifications unsubscribe error:', e?.message); }
+    };
+  })();
+
+  return () => {
+    cancelled = true;
+    if (cleanup) cleanup();
+  };
+};
+
+/**
  * Souscrit aux events broadcast `typing` sur une tâche donnée.
  * Broadcast = WS éphémère, pas de persistance DB. Utilisé pour les indicateurs
  * "X est en train d'écrire..." live entre 2 users qui ont la même task ouverte.

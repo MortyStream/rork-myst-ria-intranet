@@ -140,7 +140,7 @@ export default function ResourceItemFormScreen() {
       // - allowsEditing: false évite le crop iOS qui demande une 2e confirmation
       // - exif/base64: false réduit la mémoire et évite les crashs sur grosses photos
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         quality: 0.8,
         allowsMultipleSelection: false,
         selectionLimit: 1,

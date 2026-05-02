@@ -158,9 +158,11 @@ async function processTaskReminders(
       continue;
     }
 
+    // Titres courts (≤ 22 chars) pour qu'ils tiennent sur 1 ligne dans la card
+    // de notification UI sans tronquer.
     const title = windowType === "24h"
-      ? "📅 Rappel : deadline dans 24h"
-      : "🚨 Deadline dans 1h !";
+      ? "📅 Deadline dans 24h"
+      : "🚨 Plus qu'1h !";
     const body = windowType === "24h"
       ? `Il te reste 24h pour terminer « ${task.title} ».`
       : `Plus qu'1h pour finir « ${task.title} » !`;
@@ -226,7 +228,7 @@ async function processEventReminders(
       continue;
     }
 
-    const title = "⏰ Rappel : événement dans 1h";
+    const title = "⏰ Événement dans 1h";
     const body = `« ${event.title} » commence dans 1h.`;
 
     try {

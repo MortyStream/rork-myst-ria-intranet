@@ -5,14 +5,15 @@ node_modules
 
 # Claude Code session data — patterns explicites pour qu'on puisse
 # tracker .claude/*.md (doc modulaire CLAUDE.md split) tout en ignorant
-# les artefacts de session (worktrees, settings locaux, agents, etc.)
-.claude/worktrees/
-.claude/agents/
-.claude/projects/
-.claude/skills/
-.claude/transcripts/
-.claude/settings.local.json
-.claude/settings.json
+# les artefacts de session (worktrees, settings locaux, agents, etc.).
+# Préfixe **/ = récursif : matche aussi expo/.claude/, scripts/.claude/, etc.
+**/.claude/worktrees/
+**/.claude/agents/
+**/.claude/projects/
+**/.claude/skills/
+**/.claude/transcripts/
+**/.claude/settings.local.json
+**/.claude/settings.json
 
 # OS / IDE
 .DS_Store

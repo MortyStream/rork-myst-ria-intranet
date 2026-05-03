@@ -5,7 +5,7 @@
 Ouvre PowerShell et tape :
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "C:\Users\MOOKI\rork-myst-ria-intranet\scripts\auto-backup.ps1"
+powershell -ExecutionPolicy Bypass -File "C:\Users\MOOKI\mysteria-app\scripts\auto-backup.ps1"
 ```
 
 Tu devrais voir :
@@ -34,7 +34,7 @@ Si ça marche, passe à l'étape 2.
    - Programme/script : `powershell.exe`
    - Arguments :
      ```
-     -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Users\MOOKI\rork-myst-ria-intranet\scripts\auto-backup.ps1"
+     -ExecutionPolicy Bypass -WindowStyle Hidden -File "C:\Users\MOOKI\mysteria-app\scripts\auto-backup.ps1"
      ```
 6. Onglet **Conditions** :
    - Décoche **`Démarrer la tâche uniquement si l'ordinateur est sur le secteur`** (si tu veux que ça marche aussi sur batterie)
@@ -48,7 +48,7 @@ Si ça marche, passe à l'étape 2.
 
 ## Étape 3 : Vérifier que ça tourne
 
-- Logs : ouvre `C:\Users\MOOKI\rork-myst-ria-intranet\scripts\backup.log`
+- Logs : ouvre `C:\Users\MOOKI\mysteria-app\scripts\backup.log`
 - GitHub : tu verras des tags `auto-backup-YYYYMMDD-HHMM` apparaître toutes les 48h
 - Pour forcer une exécution : Planificateur → ta tâche → clic droit → **Exécuter**
 
@@ -59,7 +59,7 @@ Si ça marche, passe à l'étape 2.
 Pour revenir à une sauvegarde particulière :
 
 ```powershell
-cd C:\Users\MOOKI\rork-myst-ria-intranet
+cd C:\Users\MOOKI\mysteria-app
 git checkout auto-backup-20260428-0200
 ```
 

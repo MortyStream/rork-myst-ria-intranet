@@ -1,6 +1,6 @@
 # Sauvegarde automatique - commit et push tout ce qui n'est pas encore sur GitHub
 $ErrorActionPreference = "Stop"
-Set-Location "C:\Users\MOOKI\rork-myst-ria-intranet"
+Set-Location "C:\Users\MOOKI\mysteria-app"
 
 # Y a-t-il quelque chose a sauvegarder ?
 $status = git status --porcelain

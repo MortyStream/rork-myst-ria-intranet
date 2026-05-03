@@ -59,7 +59,7 @@ const UserListItemComponent: React.FC<UserListItemProps> = ({
     }
   };
 
-  const assocLabel = getAssociationRoleLabel((user as any).associationRole);
+  const assocLabel = getAssociationRoleLabel(user.associationRole);
 
   return (
     <TouchableOpacity

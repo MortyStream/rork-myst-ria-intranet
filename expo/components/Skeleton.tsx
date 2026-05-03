@@ -1,12 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Animated, StyleSheet, View, ViewStyle, LayoutChangeEvent } from 'react-native';
+import { Animated, StyleSheet, View, ViewStyle, LayoutChangeEvent, DimensionValue } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
 
 interface SkeletonProps {
   /** Largeur fixe en px ou en %. Défaut '100%'. */
-  width?: number | string;
+  width?: DimensionValue;
   /** Hauteur fixe en px. Défaut 14. */
   height?: number;
   /** Border radius. Défaut 6. */
@@ -70,7 +70,7 @@ export const Skeleton: React.FC<SkeletonProps> = ({
       onLayout={onLayout}
       style={[
         {
-          width: width as any,
+          width,
           height,
           borderRadius,
           backgroundColor: baseBg,

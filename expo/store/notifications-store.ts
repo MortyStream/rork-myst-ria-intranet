@@ -15,6 +15,19 @@ interface NotificationsState {
   error: string | null;
 }
 
+// Dedup window pour addNotification : si une notif strictement identique
+// (mêmes recipients + même titre + même message + même entité liée) est
+// déjà partie il y a moins de 2s, on drop. Évite les doublons quand un
+// même flow déclenche plusieurs fois addNotification (cascade event/task).
+const NOTIF_DEDUP_WINDOW_MS = 2000;
+const _recentNotifKeys = new Map<string, number>();
+const buildNotifDedupKey = (n: Omit<Notification, 'id' | 'read' | 'createdAt' | 'updatedAt'>) => {
+  const targets = (n.targetUserIds ?? []).slice().sort().join(',');
+  const roles = (n.targetRoles ?? []).slice().sort().join(',');
+  const entity = n.eventId ?? n.taskId ?? n.categoryId ?? '';
+  return `${entity}:${targets}:${roles}:${n.title}:${n.message}`;
+};
+
 interface NotificationsStore extends NotificationsState {
   initializeNotifications: () => Promise<void>;
   addNotification: (notification: Omit<Notification, 'id' | 'read' | 'createdAt' | 'updatedAt'>) => void;
@@ -69,6 +82,23 @@ export const useNotificationsStore = create<NotificationsStore>()(
       },
 
       addNotification: (notificationData) => {
+        // Anti-doublon : drop silencieusement si une notif strictement
+        // identique a été créée il y a moins de 2s. Cas typique = un flow
+        // qui rebrasse plusieurs fois la même action et appelle addNotification
+        // en cascade (rare mais ça arrive avec les RPC + Realtime).
+        const dedupKey = buildNotifDedupKey(notificationData);
+        const lastTs = _recentNotifKeys.get(dedupKey);
+        const dedupNow = Date.now();
+        if (lastTs && dedupNow - lastTs < NOTIF_DEDUP_WINDOW_MS) {
+          return;
+        }
+        _recentNotifKeys.set(dedupKey, dedupNow);
+        if (_recentNotifKeys.size > 100) {
+          const cutoff = dedupNow - NOTIF_DEDUP_WINDOW_MS * 5;
+          for (const [k, t] of _recentNotifKeys) {
+            if (t < cutoff) _recentNotifKeys.delete(k);
+          }
+        }
         // 🚨 BUG CRITIQUE résolu : avant on générait un id type
         // `notification-${Date.now()}-${Math.random()...}` (string non-UUID).
         // La colonne `notifications.id` est UUID NOT NULL → l'INSERT échouait

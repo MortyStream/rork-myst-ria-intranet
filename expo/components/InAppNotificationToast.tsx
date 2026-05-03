@@ -27,7 +27,8 @@ const AUTO_DISMISS_MS = 4500;
  * - Slide-in animé (translateY) à l'apparition
  * - Auto-dismiss après 4.5s
  * - Tap → mark as read + deep-link vers la cible (event/task/category)
- * - Swipe vers le haut → dismiss manuel
+ * - Swipe vers le haut → dismiss manuel (pas de mark-as-read)
+ * - Swipe latéral (gauche ou droite) → mark-as-read + dismiss (style WhatsApp)
  *
  * Le composant lit le store `useInAppToastStore.current`. Quand il est null,
  * on retourne null (pas de mount inutile).
@@ -40,6 +41,7 @@ export const InAppNotificationToast: React.FC = () => {
   const theme = darkMode ? Colors.dark : Colors.light;
 
   const translateY = useRef(new Animated.Value(-200)).current;
+  const translateX = useRef(new Animated.Value(0)).current;
   const dismissTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Slide-in à l'apparition + reset du timer auto-dismiss
@@ -47,6 +49,7 @@ export const InAppNotificationToast: React.FC = () => {
     if (!current) {
       // pas de notif active : remettre l'animation hors écran (ne pas leak l'état d'animation entre 2 toasts)
       translateY.setValue(-200);
+      translateX.setValue(0);
       return;
     }
 
@@ -80,29 +83,75 @@ export const InAppNotificationToast: React.FC = () => {
     });
   };
 
-  // Swipe vers le haut pour dismiss
+  // Swipe latéral assez fort → fly out de côté + mark-as-read + hide
+  const animateOutHorizontal = (direction: 'left' | 'right') => {
+    Animated.timing(translateX, {
+      toValue: direction === 'right' ? 500 : -500,
+      duration: 200,
+      useNativeDriver: true,
+    }).start(() => {
+      // current peut être null si déjà dismissé (sécu race)
+      const id = useInAppToastStore.getState().current?.id;
+      if (id) markAsRead(id);
+      hide();
+      // Reset translateX pour le prochain toast
+      translateX.setValue(0);
+    });
+  };
+
+  // PanResponder : gère swipe vertical (haut → dismiss) ET latéral (gauche/droite
+  // → mark-as-read + dismiss style WhatsApp). On choisit l'axe au démarrage du
+  // geste selon le delta dominant pour éviter le drag diagonal weird.
+  const gestureAxis = useRef<'horizontal' | 'vertical' | null>(null);
   const panResponder = useRef(
     PanResponder.create({
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 5,
+      onMoveShouldSetPanResponder: (_, g) =>
+        Math.abs(g.dy) > 5 || Math.abs(g.dx) > 5,
+      onPanResponderGrant: () => {
+        gestureAxis.current = null;
+      },
       onPanResponderMove: (_, g) => {
-        // Permettre le drag uniquement vers le haut (dy négatif)
-        if (g.dy < 0) {
+        // Bloquer l'axe au premier mouvement significatif
+        if (!gestureAxis.current) {
+          if (Math.abs(g.dx) > Math.abs(g.dy)) {
+            gestureAxis.current = 'horizontal';
+          } else if (g.dy < 0) {
+            // Vertical autorisé uniquement vers le haut
+            gestureAxis.current = 'vertical';
+          }
+        }
+        if (gestureAxis.current === 'horizontal') {
+          translateX.setValue(g.dx);
+        } else if (gestureAxis.current === 'vertical' && g.dy < 0) {
           translateY.setValue(g.dy);
         }
       },
       onPanResponderRelease: (_, g) => {
-        if (g.dy < -40) {
-          // Swipe assez fort vers le haut → dismiss
-          animateOutAndHide();
-        } else {
-          // Pas assez → revenir à la position visible
-          Animated.spring(translateY, {
-            toValue: 0,
-            useNativeDriver: true,
-            tension: 60,
-            friction: 9,
-          }).start();
+        if (gestureAxis.current === 'horizontal') {
+          if (Math.abs(g.dx) > 80) {
+            animateOutHorizontal(g.dx > 0 ? 'right' : 'left');
+          } else {
+            // Snap back horizontal
+            Animated.spring(translateX, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 60,
+              friction: 9,
+            }).start();
+          }
+        } else if (gestureAxis.current === 'vertical') {
+          if (g.dy < -40) {
+            animateOutAndHide();
+          } else {
+            Animated.spring(translateY, {
+              toValue: 0,
+              useNativeDriver: true,
+              tension: 60,
+              friction: 9,
+            }).start();
+          }
         }
+        gestureAxis.current = null;
       },
     })
   ).current;
@@ -147,7 +196,7 @@ export const InAppNotificationToast: React.FC = () => {
     <Animated.View
       style={[
         styles.wrapper,
-        { transform: [{ translateY }] },
+        { transform: [{ translateY }, { translateX }] },
       ]}
       pointerEvents="box-none"
       {...panResponder.panHandlers}

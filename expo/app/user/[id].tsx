@@ -119,7 +119,7 @@ export default function UserProfileScreen() {
     return false;
   };
 
-  const assocLabel = getAssociationRoleLabel((user as any).associationRole);
+  const assocLabel = getAssociationRoleLabel(user.associationRole);
   
   return(
     <AppLayout hideMenuButton={true}>

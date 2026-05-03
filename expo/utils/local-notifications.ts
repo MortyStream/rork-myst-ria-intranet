@@ -24,10 +24,14 @@ const isSupported = Platform.OS !== 'web' && !isExpoGo;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const Notifications: any = isSupported ? require('expo-notifications') : null;
 
+// Sous-typage local : on ne consomme qu'une partie des champs des types
+// complets `Task` / `Event`. On accepte `undefined` partout où le type
+// canonique met `optional` (?), pour éviter d'avoir à caster les arrays
+// venus du store côté caller (cf. _layout.tsx:syncLocalReminders).
 interface Task {
   id: string;
   title: string;
-  deadline: string | null;
+  deadline?: string | null;
   status: string;
   assignedTo: string[];
 }
@@ -36,7 +40,7 @@ interface Event {
   id: string;
   title: string;
   startTime: string;
-  participants: { userId: string; status: string }[] | null;
+  participants?: { userId: string; status: string }[] | null;
 }
 
 const REMINDER_24H_MS = 24 * 60 * 60 * 1000;

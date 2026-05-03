@@ -115,14 +115,14 @@ export default function RootLayout() {
   // startTime pour events). Les comments / reactions / typing ne déclenchent
   // plus le sync.
   const tasksReminderKey = useMemo(
-    () => tasks.map((t: any) =>
+    () => tasks.map((t) =>
       `${t.id}|${t.deadline ?? ''}|${t.status ?? ''}|${(t.assignedTo ?? []).join(',')}`
     ).join(';'),
     [tasks]
   );
   const eventsReminderKey = useMemo(
-    () => events.map((e: any) =>
-      `${e.id}|${e.startTime ?? ''}|${(e.participants ?? []).map((p: any) => `${p.userId}:${p.status}`).join(',')}`
+    () => events.map((e) =>
+      `${e.id}|${e.startTime ?? ''}|${(e.participants ?? []).map((p) => `${p.userId}:${p.status}`).join(',')}`
     ).join(';'),
     [events]
   );
@@ -131,7 +131,7 @@ export default function RootLayout() {
     if (!user?.id || user.id === 'preview-user') return;
     // Debounce 500ms : absorbe les rafales de updates initial-load.
     const timeoutId = setTimeout(() => {
-      syncLocalReminders(tasks as any, events as any, user.id).catch((err) => {
+      syncLocalReminders(tasks, events, user.id).catch((err) => {
         console.log('[LocalNotif] sync from layout error:', err);
       });
     }, 500);

@@ -813,8 +813,13 @@ export const useAuthStore = create<AuthStore>()(
               console.log('setSession warmup error (ignored):', e);
             }
 
-            // Helper : retry un fetch jusqu'à 3x avec backoff (pour absorber un éventuel
-            // retard de propagation du JWT dans le client custom Supabase).
+            // Helper : retry un fetch jusqu'à 3x avec backoff. Distinction
+            // critique entre deux cas qui ressemblent tous les deux à "row null" :
+            // - error null + row null = la query A RÉUSSI mais le profil n'existe
+            //   pas → fail fast, retry serait du gaspillage (600ms perdus).
+            // - error non-null = vraie erreur (JWT pas propagé / RLS / réseau)
+            //   → retry avec backoff a du sens, ça peut se résoudre au prochain
+            //   attempt (ex : JWT mémoire-cache pas encore lu par le wrapper fetch).
             const fetchProfileWithRetry = async (
               field: 'supabaseUserId' | 'email',
               value: string,
@@ -827,9 +832,8 @@ export const useAuthStore = create<AuthStore>()(
                   .eq(field, value)
                   .maybeSingle();
                 if (row) return row;
-                if (error && error.code !== 'PGRST116') {
-                  console.log(`fetchProfile by ${field} attempt ${i + 1} failed:`, getErrorMessage(error));
-                }
+                if (!error) return null;
+                console.log(`fetchProfile by ${field} attempt ${i + 1} failed:`, getErrorMessage(error));
                 if (i < attempts - 1) {
                   await new Promise<void>((r) => setTimeout(r, 200 * (i + 1)));
                 }
@@ -999,7 +1003,7 @@ export const useAuthStore = create<AuthStore>()(
               phone: user.phone,
               bio: user.bio,
               // La colonne Supabase s'appelle avatarUrl, pas profileImage
-              avatarUrl: user.profileImage ?? (user as any).avatarUrl,
+              avatarUrl: user.profileImage ?? user.avatarUrl,
               updatedAt: new Date().toISOString(),
             })
             .eq('id', user.id);

@@ -26,6 +26,10 @@ export interface User {
   username?: string;
   supabaseUserId?: string;
   editable_by?: string; // UUID of the Supabase user who can edit this profile
+  // Rôle associatif optionnel (président, trésorier, secrétaire, comité…) —
+  // distinct du `role` applicatif (admin/moderator/etc.). Affiché dans la
+  // page user et la UserListItem si défini. Défini en DB côté admin/user-form.
+  associationRole?: string;
 }
 
 // Added AuthState interface for auth-store.ts

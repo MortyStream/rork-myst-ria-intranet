@@ -13,6 +13,15 @@ import { getIsOnline } from '@/components/OfflineBanner';
 // (INSERT/UPDATE/DELETE sur la table tasks). Démarrée au login, arrêtée au logout.
 let _tasksRealtimeUnsubscribe: (() => void) | null = null;
 
+// Dedup window pour addComment : si même userId + même taskId + même contenu
+// en moins de 2s, on drop silencieusement (anti spam-clic Send).
+// Cas légitimes préservés : 2 users différents commentent simultanément, ou
+// même user commente 2 textes différents rapidement.
+const COMMENT_DEDUP_WINDOW_MS = 2000;
+const _recentCommentKeys = new Map<string, number>();
+const buildCommentDedupKey = (taskId: string, userId: string, content: string) =>
+  `${taskId}:${userId}:${content.trim().slice(0, 200)}`;
+
 /** Démarre la sync Realtime de la liste des tâches. Idempotent. */
 export const startTasksRealtimeSync = () => {
   if (_tasksRealtimeUnsubscribe) return; // déjà actif
@@ -290,6 +299,23 @@ export const useTasksStore = create<TasksStore>()(
         const supabase = getSupabase();
         const task = get().getTaskById(taskId);
         if (!task) return;
+        // Anti spam-clic : si on a vu exactement le même comment de ce user
+        // sur cette task il y a moins de 2s, on drop. Évite d'avoir 5x le même
+        // commentaire si le user tape sur Send compulsivement.
+        const dedupKey = buildCommentDedupKey(taskId, userId, content);
+        const lastTs = _recentCommentKeys.get(dedupKey);
+        const dedupNow = Date.now();
+        if (lastTs && dedupNow - lastTs < COMMENT_DEDUP_WINDOW_MS) {
+          return;
+        }
+        _recentCommentKeys.set(dedupKey, dedupNow);
+        // Cleanup léger du Map pour pas leak ad infinitum (garde max ~50 entrées récentes).
+        if (_recentCommentKeys.size > 50) {
+          const cutoff = dedupNow - COMMENT_DEDUP_WINDOW_MS * 5;
+          for (const [k, t] of _recentCommentKeys) {
+            if (t < cutoff) _recentCommentKeys.delete(k);
+          }
+        }
         // UUID v4 : zero collision même avec 2 users qui commentent à la même
         // milliseconde. Avant : Date.now()+Math.random(36) → probabilité non
         // nulle de collision sur le jsonb (le worker idempotency vérifie déjà

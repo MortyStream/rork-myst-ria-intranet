@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import {
   StyleSheet,
   Text,
@@ -7,9 +7,13 @@ import {
   View,
   ViewStyle,
   TextStyle,
+  Animated,
 } from 'react-native';
 import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
+import { tapHaptic, mediumHaptic, successHaptic, warningHaptic, selectionHaptic } from '@/utils/haptics';
+
+type HapticVariant = 'light' | 'medium' | 'success' | 'warning' | 'selection';
 
 interface ButtonProps {
   title?: string;
@@ -23,6 +27,9 @@ interface ButtonProps {
   iconPosition?: 'left' | 'right';
   fullWidth?: boolean;
   small?: boolean;
+  // Opt-in haptic. OFF par défaut — anti-saturation tactile (cf. utils/haptics.ts).
+  // Utiliser uniquement sur actions confirmées (save, delete, RSVP), pas sur navigation.
+  haptic?: HapticVariant;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -37,9 +44,45 @@ export const Button: React.FC<ButtonProps> = ({
   iconPosition = 'left',
   fullWidth = false,
   small = false,
+  haptic,
 }) => {
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
+
+  // Scale press subtil = feedback visuel universel. Spring rapide pour rester
+  // snappy. useNativeDriver pour pas bloquer le JS thread.
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.97,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 0,
+    }).start();
+  };
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      useNativeDriver: true,
+      speed: 50,
+      bounciness: 4,
+    }).start();
+  };
+
+  const triggerHaptic = () => {
+    switch (haptic) {
+      case 'light': tapHaptic(); break;
+      case 'medium': mediumHaptic(); break;
+      case 'success': successHaptic(); break;
+      case 'warning': warningHaptic(); break;
+      case 'selection': selectionHaptic(); break;
+    }
+  };
+
+  const handlePress = () => {
+    triggerHaptic();
+    onPress();
+  };
   
   // Map variant to styles
   const getButtonStyle = () => {
@@ -125,14 +168,18 @@ export const Button: React.FC<ButtonProps> = ({
   );
   
   return (
-    <TouchableOpacity
-      style={buttonStyles}
-      onPress={onPress}
-      disabled={disabled || loading}
-      activeOpacity={0.7}
-    >
-      {content}
-    </TouchableOpacity>
+    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+      <TouchableOpacity
+        style={buttonStyles}
+        onPress={handlePress}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        disabled={disabled || loading}
+        activeOpacity={0.7}
+      >
+        {content}
+      </TouchableOpacity>
+    </Animated.View>
   );
 };
 

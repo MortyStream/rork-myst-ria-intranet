@@ -3,8 +3,16 @@ node_modules
 .expo
 .mcp.json
 
-# Claude Code session data (worktrees, transcripts)
-.claude/
+# Claude Code session data — patterns explicites pour qu'on puisse
+# tracker .claude/*.md (doc modulaire CLAUDE.md split) tout en ignorant
+# les artefacts de session (worktrees, settings locaux, agents, etc.)
+.claude/worktrees/
+.claude/agents/
+.claude/projects/
+.claude/skills/
+.claude/transcripts/
+.claude/settings.local.json
+.claude/settings.json
 
 # OS / IDE
 .DS_Store

@@ -38,7 +38,7 @@
 
 **Performance** — `React.memo` sur `TaskItem`, `NotificationItem`, `UserListItem`. `getEventsByDate` memoïsé. Signature stable pour `syncLocalReminders` deps (plus de cascade re-fire). Intercepteur 401 → refresh → retry sur custom Postgrest client (mutex partagé).
 
-**Audit Salvatore (mai 2026)** — ~62% des items audit traités (10 bugs sur 15, 10 UX sur 19, 8 dette tech sur 16). 22 items L effort restants pour sessions dédiées (refactor auth-store 1061 lignes, expo-secure-store, @gorhom/bottom-sheet, tests Jest baseline).
+**Audit Salvatore (mai 2026)** — 29/50 items traités (62%), 2 skip volontaires (web-only), 19 restants. Détail complet item par item avec ✅/⏭/❌ : `.claude/archive/audit-salvatore-mai-2026.md`. Les gros morceaux restants (auth-store refactor, expo-secure-store, @gorhom/bottom-sheet, tests Jest baseline) sont aussi listés dans la table "Long terme" plus bas.
 
 ### 🟡 Bugs résiduels connus
 

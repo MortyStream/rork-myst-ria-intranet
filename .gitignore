@@ -15,6 +15,10 @@ node_modules
 **/.claude/settings.local.json
 **/.claude/settings.json
 
+# Transcripts bruts d'anciennes conversations Claude Code (matière brute archivée
+# uniquement en local, on garde la version structurée .md à côté).
+.claude/archive/History*.txt
+
 # OS / IDE
 .DS_Store
 Thumbs.db

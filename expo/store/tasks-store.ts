@@ -135,7 +135,18 @@ export const useTasksStore = create<TasksStore>()(
           .select()
           .single();
         if (error) throw error;
-        set(state => ({ tasks: [data, ...state.tasks] }));
+        // Dédup vs Realtime onInsert : la souscription Realtime peut firer
+        // AVANT que ce set() s'applique (la latence Realtime est parfois
+        // inférieure au temps de retour de la promise insert+select). Sans
+        // ce check, on se retrouve avec la tâche en double dans la liste
+        // du créateur uniquement → React lève "Encountered two children
+        // with the same key". Le subscriber a déjà sa propre dédup, on
+        // ajoute la nôtre côté insert pour fermer les deux côtés de la race.
+        set(state => ({
+          tasks: state.tasks.some(t => t.id === data.id)
+            ? state.tasks
+            : [data, ...state.tasks],
+        }));
 
         // Notifier chaque assigné (sauf le créateur)
         const assignedTo: string[] = taskData.assignedTo ?? [];

@@ -97,7 +97,14 @@ export const useCalendarStore = create<CalendarStore>()(
           .select()
           .single();
         if (error) throw error;
-        set(state => ({ events: [...state.events, data] }));
+        // Dédup défensif (pas de Realtime sur events aujourd'hui mais le pattern
+        // tasks-store nous a mordu avec la race insert vs onInsert — autant
+        // se prémunir au cas où on ajoute la sub Realtime plus tard).
+        set(state => ({
+          events: state.events.some(e => e.id === data.id)
+            ? state.events
+            : [...state.events, data],
+        }));
 
         // Notifier les participants invités (pas le créateur)
         if (uniqueInvitedIds.length > 0) {

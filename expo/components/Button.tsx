@@ -30,6 +30,11 @@ interface ButtonProps {
   // Opt-in haptic. OFF par défaut — anti-saturation tactile (cf. utils/haptics.ts).
   // Utiliser uniquement sur actions confirmées (save, delete, RSVP), pas sur navigation.
   haptic?: HapticVariant;
+  // Anti double-tap : bloque les presses dans une fenêtre de 500ms après le 1er.
+  // ON par défaut — protège des navigations en double (router.push 2x), des
+  // créations en double (POST). Désactiver pour les actions intentionnellement
+  // répétables (counter, reorder, picker incrémental).
+  allowRapidPress?: boolean;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -45,9 +50,15 @@ export const Button: React.FC<ButtonProps> = ({
   fullWidth = false,
   small = false,
   haptic,
+  allowRapidPress = false,
 }) => {
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
+  // Timestamp du dernier press accepté. On bloque tout press qui arrive
+  // dans les 500ms suivants (sauf si allowRapidPress=true). Évite typiquement
+  // les router.push en double quand le user tape impatiemment pendant le
+  // transition de navigation (lent en Expo Go notamment).
+  const lastPressAt = useRef<number>(0);
 
   // Scale press subtil = feedback visuel universel. Spring rapide pour rester
   // snappy. useNativeDriver pour pas bloquer le JS thread.
@@ -80,6 +91,11 @@ export const Button: React.FC<ButtonProps> = ({
   };
 
   const handlePress = () => {
+    if (!allowRapidPress) {
+      const now = Date.now();
+      if (now - lastPressAt.current < 500) return;
+      lastPressAt.current = now;
+    }
     triggerHaptic();
     onPress();
   };

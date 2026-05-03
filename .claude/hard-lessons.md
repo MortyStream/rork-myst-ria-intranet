@@ -265,3 +265,58 @@ C'est une **string non-UUID**. Or la colonne `notifications.id` est un **UUID NO
 - Edge function `scheduled-reminders` v3 redéployée
 
 **🚨 TOUJOURS uuid v4** pour générer un id côté client qui pointe vers une colonne `uuid` Postgres. Idem pour `comments[].id` dans le jsonb (sinon collision théorique sur Date.now()+Math.random() entre 2 users simultanés).
+
+---
+
+## 5.23. ☠️ Storage RLS `TO PUBLIC` ne s'applique PAS à `authenticated` (quirk Supabase)
+
+**Symptôme historique** : Mélissa (rôle `membre`) ne pouvait pas changer sa photo de profil → erreur `42501: new row violates row-level security policy for table "objects"`. L'admin (Kévin) pouvait, parce que son request passait par d'autres chemins. Confirmé en simulant Mélissa en SQL :
+
+```sql
+SET LOCAL role = 'authenticated';
+SET LOCAL request.jwt.claim.sub = '<melissa_supabase_uid>';
+INSERT INTO storage.objects (bucket_id, name, owner) VALUES ('avatars', 'profiles/test.jpg', '<melissa_supabase_uid>');
+-- ❌ ERROR: 42501 new row violates row-level security policy
+```
+
+**Cause racine** : Les policies sur `storage.objects` créées avec `TO PUBLIC` (visible dans `pg_policies` sous `roles = {public}`) **ne s'appliquent PAS** aux requêtes `authenticated` malgré la sémantique Postgres standard où PUBLIC = tous les rôles. Comportement observé sur Supabase storage spécifiquement (peut-être lié à la façon dont le storage handler évalue les policies).
+
+Au moment du fix V3d-vague1, on avait :
+- `avatars_anon_insert` policy : `TO PUBLIC`, `WITH CHECK (bucket_id = 'avatars')`
+- → `authenticated` request rejetée alors que la policy aurait dû matcher
+
+**Solution appliquée** (migration `fix_storage_rls_avatars_explicit_authenticated`) :
+- Drop les 3 policies `avatars_anon_*`
+- Recréer 4 policies `avatars_authenticated_{select,insert,update,delete}` avec **`TO authenticated` explicite**
+- Ajouter SELECT policy (manquante avant) — utile pour le `upsert: true` du SDK qui peut faire un SELECT préalable
+
+**🚨 SUR `storage.objects` : TOUJOURS `TO authenticated` explicite, JAMAIS `TO PUBLIC`.** La règle vaut aussi pour les buckets `resources` et `bug-reports` : on a ajouté SELECT policies pour eux pendant qu'on y était. Pour les autres tables `public.*`, `TO authenticated` (sans PUBLIC) est aussi la convention safe.
+
+---
+
+## 5.24. 🟠 Race Realtime `onInsert` ↔ `set(...)` local après INSERT
+
+**Symptôme historique** : Quand Kévin créait une tâche assignée à 3 users, la tâche apparaissait **2 fois** dans sa propre liste (uniquement chez le créateur, pas chez les assignés). React loggait `Encountered two children with the same key`. Pas systématique — race timing.
+
+**Cause racine** : Dans `tasks-store.addTask` :
+1. `await supabase.from('tasks').insert(...)` → renvoie la row insérée
+2. `set(state => ({ tasks: [data, ...state.tasks] }))` → ajoute à l'état local
+
+Pendant ce temps, `subscribeToTasksList.onInsert` (souscription Realtime active depuis le login via `_layout.tsx`) reçoit l'event INSERT de Postgres et appelle `setState` lui aussi. Si le Realtime fire **avant** que le `set()` du caller s'applique :
+
+- T0 : `addTask` envoie INSERT
+- T1 : Realtime `onInsert` fire — vérifie `state.tasks.some(t => t.id === newTask.id)` → false (le set local n'a pas encore eu lieu) → ajoute la row
+- T2 : `addTask` continue, son `set()` ajoute la row une 2e fois → **doublon**
+
+**Solution appliquée** :
+- Le subscriber avait déjà sa dédup sur `state.tasks.some(t => t.id === id)`
+- Ajouter la **même dédup côté `addTask`** pour fermer les deux côtés de la race :
+```ts
+set(state => ({
+  tasks: state.tasks.some(t => t.id === data.id) ? state.tasks : [data, ...state.tasks],
+}));
+```
+
+Patché aussi dans `calendar-store.addEvent` pour les events (pas de Realtime aujourd'hui mais le pattern est valable si on en ajoute un).
+
+**🚨 RÈGLE GÉNÉRALE** : dès qu'une table a une souscription Realtime active sur INSERT, le caller qui fait l'INSERT et set local doit DÉDUP, et le subscriber doit aussi dédup. Les deux côtés. Sinon race garantie sur certains devices.

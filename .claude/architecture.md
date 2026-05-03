@@ -101,7 +101,7 @@ Avant la v3, les deux utilisaient `mysteria-auth-storage` → collision → écr
 
 ```powershell
 # Démarrage serveur (depuis expo/)
-cd C:\Users\MOOKI\rork-myst-ria-intranet\expo
+cd C:\Users\MOOKI\mysteria-app\expo
 npx expo start --tunnel --clear
 
 # Install d'un package (toujours --legacy-peer-deps à cause du conflit React 19)
@@ -114,12 +114,12 @@ npm install <package> --legacy-peer-deps
 ### Sauvegarde Git
 
 ```powershell
-# Repo : github.com/MortyStream/rork-myst-ria-intranet
+# Repo : github.com/MortyStream/mysteria-app
 # Branch : main
 # Restoration : git checkout <commit-hash>
 ```
 
-On bosse direct dans le origin repo `C:/Users/MOOKI/rork-myst-ria-intranet`. Les worktrees `.claude/worktrees/...` ne sont plus utilisés.
+On bosse direct dans le origin repo `C:/Users/MOOKI/mysteria-app`. Les worktrees `.claude/worktrees/...` ne sont plus utilisés.
 
 ---
 
@@ -128,7 +128,7 @@ On bosse direct dans le origin repo `C:/Users/MOOKI/rork-myst-ria-intranet`. Les
 ### Arborescence racine
 
 ```
-rork-myst-ria-intranet/
+mysteria-app/
 ├── CLAUDE.md                    ← Source de vérité racine, allégée (~2.5k tokens)
 ├── .claude/                     ← Doc modulaire + session data
 │   ├── architecture.md          ← ce fichier

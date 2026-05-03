@@ -124,7 +124,7 @@ Le git log est la source de vérité primaire. Ordre approximatif (les hashes pe
 
 ## 📞 Contacts & Ressources
 
-- **GitHub** : [github.com/MortyStream/rork-myst-ria-intranet](https://github.com/MortyStream/rork-myst-ria-intranet)
+- **GitHub** : [github.com/MortyStream/mysteria-app](https://github.com/MortyStream/mysteria-app)
 - **Supabase Dashboard** : project `toefttzpdexugvfdqhfg` (eu-west-1)
 - **Resend** : compte Kévin (en attente DNS)
 - **EAS** : project `b2bdb0b9-18cf-40a6-be2c-c7dc1de3333c` (configuré dans `expo/app.json`)

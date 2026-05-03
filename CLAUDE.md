@@ -19,7 +19,7 @@
 ## Commandes essentielles
 
 ```powershell
-cd C:\Users\MOOKI\rork-myst-ria-intranet\expo
+cd C:\Users\MOOKI\mysteria-app\expo
 npx expo start --tunnel --clear              # dev server avec tunnel ngrok
 npm install <pkg> --legacy-peer-deps         # toujours avec ce flag (conflit React 19)
 ```

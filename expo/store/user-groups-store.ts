@@ -17,6 +17,8 @@ interface UserGroupsStore extends UserGroupsState {
   updateGroup: (id: string, data: Partial<Omit<UserGroup, 'id' | 'memberIds'>>) => Promise<void>;
   deleteGroup: (id: string) => Promise<void>;
   setGroupMembers: (groupId: string, userIds: string[]) => Promise<void>;
+  /** Désigne (ou retire) le Responsable de Pôle. userId=null pour retirer. */
+  setGroupResponsible: (groupId: string, userId: string | null) => Promise<void>;
   getGroupById: (id: string) => UserGroup | undefined;
 }
 
@@ -55,6 +57,7 @@ export const useUserGroupsStore = create<UserGroupsStore>()(
             createdAt: g.createdAt,
             updatedAt: g.updatedAt,
             memberIds: membersByGroup.get(g.id) || [],
+            responsibleId: g.responsibleId ?? null,
           }));
 
           set({ groups, isLoading: false });
@@ -156,6 +159,21 @@ export const useUserGroupsStore = create<UserGroupsStore>()(
         set((state) => ({
           groups: state.groups.map((g) =>
             g.id === groupId ? { ...g, memberIds: userIds } : g
+          ),
+        }));
+      },
+
+      setGroupResponsible: async (groupId, userId) => {
+        const supabase = getSupabase();
+        const now = new Date().toISOString();
+        const { error } = await supabase
+          .from('user_groups')
+          .update({ responsibleId: userId, updatedAt: now })
+          .eq('id', groupId);
+        if (error) throw error;
+        set((state) => ({
+          groups: state.groups.map((g) =>
+            g.id === groupId ? { ...g, responsibleId: userId, updatedAt: now } : g
           ),
         }));
       },

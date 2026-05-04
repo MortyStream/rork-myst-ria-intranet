@@ -20,6 +20,7 @@ import {
   UsersRound,
   CheckSquare,
   Shield,
+  Briefcase,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -38,11 +39,13 @@ export default function AdminScreen() {
   const isAdmin = user?.role === 'admin';
   const isModerator = user?.role === 'moderator';
   const isCommittee = user?.role === 'committee';
+  const isResponsablePole = user?.role === 'responsable_pole';
+  const isResponsableSecteur = user?.role === 'responsable_secteur';
 
   const hasPerm = (perm: string) =>
     isAdmin || (isModerator && (user?.permissions?.includes(perm) ?? false));
 
-  const canAccessAdmin = isAdmin || isModerator || isCommittee;
+  const canAccessAdmin = isAdmin || isModerator || isCommittee || isResponsablePole || isResponsableSecteur;
 
   useEffect(() => {
     // Attendre que l'user soit hydraté avant de juger des droits. Sans cette
@@ -79,6 +82,13 @@ export default function AdminScreen() {
       route: '/admin/groups',
       description: "Gérer les groupes d'utilisateurs",
       access: isAdmin || isCommittee || hasPerm('groups'),
+    },
+    {
+      title: 'Pôles & Secteurs',
+      icon: <Briefcase size={24} color={appColors.primary} />,
+      route: '/admin/sectors',
+      description: 'Gérer pôles, secteurs et leurs responsables',
+      access: isAdmin || isResponsablePole || isResponsableSecteur,
     },
     {
       title: 'Notifications',

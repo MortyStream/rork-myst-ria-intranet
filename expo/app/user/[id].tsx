@@ -214,9 +214,11 @@ const styles = StyleSheet.create({
   notFoundText:{fontSize:18,fontWeight:'500'},
   profileHeader:{alignItems:'center',marginBottom:24},
   userName:{fontSize:24,fontWeight:'bold',marginTop:16,marginBottom:8,textAlign:'center'},
-  roleBadge:{marginBottom:8},
-  editableBadge:{marginBottom:8},
-  nonEditableBadge:{marginBottom:8},
+  // Override le `alignSelf: 'flex-start'` du Badge pour centrer sous le prénom
+  // (le parent header a alignItems:'center', sinon les badges se collent à gauche).
+  roleBadge:{alignSelf:'center', marginBottom:8},
+  editableBadge:{alignSelf:'center', marginBottom:8},
+  nonEditableBadge:{alignSelf:'center', marginBottom:8},
   contactCard:{marginBottom:16},
   sectorsCard:{marginBottom:16},
   bioCard:{marginBottom:16},

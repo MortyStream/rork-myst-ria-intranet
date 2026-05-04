@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -6,8 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Image,
-  Alert,
 } from 'react-native';
+import { ConfirmModal } from './ConfirmModal';
 import { useRouter, usePathname } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -39,23 +39,17 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
   const theme = darkMode ? Colors.dark : Colors.light;
   const appColors = useAppColors();
 
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
+
   const handleLogout = () => {
-    Alert.alert(
-      'Déconnexion',
-      'Êtes-vous sûr de vouloir vous déconnecter ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Se déconnecter',
-          style: 'destructive',
-          onPress: async () => {
-            if (onClose) onClose();
-            await logout();
-            router.replace('/login');
-          },
-        },
-      ]
-    );
+    setConfirmingLogout(true);
+  };
+
+  const performLogout = async () => {
+    setConfirmingLogout(false);
+    if (onClose) onClose();
+    await logout();
+    router.replace('/login');
   };
 
   const navigateTo = (path: string) => {
@@ -206,6 +200,18 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
           Se déconnecter
         </Text>
       </TouchableOpacity>
+
+      {/* ConfirmModal cohérent thème (au lieu de l'Alert.alert blanc moche). */}
+      <ConfirmModal
+        visible={confirmingLogout}
+        title="Déconnexion"
+        message="Êtes-vous sûr de vouloir vous déconnecter ?"
+        actions={[
+          { label: 'Annuler', style: 'cancel' },
+          { label: 'Se déconnecter', style: 'destructive', onPress: performLogout },
+        ]}
+        onDismiss={() => setConfirmingLogout(false)}
+      />
     </View>
   );
 };

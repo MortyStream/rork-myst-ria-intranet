@@ -319,6 +319,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   roleBadge: {
+    // Override le `alignSelf: 'flex-start'` que Badge met par défaut. Sans ça,
+    // le badge se colle à gauche au lieu d'être centré sous le nom (le parent
+    // profileHeader a alignItems: 'center' mais alignSelf gagne sur l'enfant).
+    alignSelf: 'center',
     marginBottom: 16,
   },
   editButton: {

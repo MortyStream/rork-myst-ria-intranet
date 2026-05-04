@@ -500,10 +500,8 @@ export default function ResourceCategoryScreen() {
             Cohérent thème sombre, plus l'URL et le titre du lien comme contexte. */}
         <ConfirmModal
           visible={linkToOpen !== null}
-          title="Ouvrir le lien"
-          message={linkToOpen
-            ? `Vous allez être redirigé vers :\n\n${linkToOpen.url}\n\nCe lien s'ouvrira dans votre navigateur.`
-            : ''}
+          title={linkToOpen ? `Ouvrir « ${linkToOpen.title} » ?` : 'Ouvrir le lien'}
+          message="Ce lien s'ouvrira dans votre navigateur."
           actions={[
             { label: 'Annuler', style: 'cancel' },
             {

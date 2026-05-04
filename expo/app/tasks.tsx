@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check } from 'lucide-react-native';
+import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2 } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -284,85 +284,84 @@ export default function TasksScreen() {
           />
         </View>
 
-        {/* Pendant une recherche : on cache les chips de filtre (la search bypass
-            les filtres et montre tous les résultats matchés peu importe l'état). */}
+        {/* Filtres unifiés en une seule rangée scrollable horizontalement.
+            Avant : 2 niveaux (3 boutons "Toutes/À faire/Terminées" + chips)
+            qui faisaient doublon visuel. Maintenant : tout en chips avec
+            distinction sémantique :
+              - 2 chips "status" en tête (À faire / Terminées) — radio mutex.
+                Aucun actif = filtre = 'all' (default).
+              - chips d'attributs derrière (Mes / Données / Catégorie / Priorité
+                / Retard) — toggleables, combinables avec status.
+            Pendant une recherche : on cache la rangée (search bypass tout filtre). */}
         {!isSearching && (
-          <View style={styles.filterContainer}>
-            <Button
-              title={`Toutes (${userTasks.length})`}
-              onPress={() => setFilter('all')}
-              variant={filter === 'all' ? 'primary' : 'text'}
-              style={styles.filterButton}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipsScrollView}
+            contentContainerStyle={styles.chipsContent}
+          >
+            <FilterChip
+              label={`À faire (${pendingTasks.length})`}
+              icon={<Clock size={14} color={filter === 'pending' ? '#fff' : theme.text} />}
+              active={filter === 'pending'}
+              onPress={() => setFilter(filter === 'pending' ? 'all' : 'pending')}
+              theme={theme}
+              primary={appColors.primary}
             />
-            <Button
-              title={`À faire (${pendingTasks.length})`}
-              onPress={() => setFilter('pending')}
-              variant={filter === 'pending' ? 'primary' : 'text'}
-              style={styles.filterButton}
+            <FilterChip
+              label={`Terminées (${completedTasks.length})`}
+              icon={<CheckCircle2 size={14} color={filter === 'completed' ? '#fff' : theme.text} />}
+              active={filter === 'completed'}
+              onPress={() => setFilter(filter === 'completed' ? 'all' : 'completed')}
+              theme={theme}
+              primary={appColors.primary}
             />
-            <Button
-              title={`Terminées (${completedTasks.length})`}
-              onPress={() => setFilter('completed')}
-              variant={filter === 'completed' ? 'primary' : 'text'}
-              style={styles.filterButton}
+            <FilterChip
+              label="Mes tâches"
+              icon={<User size={14} color={chipMine ? '#fff' : theme.text} />}
+              active={chipMine}
+              onPress={() => setChipMine((v) => !v)}
+              theme={theme}
+              primary={appColors.primary}
             />
-          </View>
+            <FilterChip
+              label="Tâches données"
+              icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
+              active={chipCreated}
+              onPress={() => setChipCreated((v) => !v)}
+              theme={theme}
+              primary={appColors.primary}
+            />
+            <FilterChip
+              label={chipCategoryId
+                ? `Catégorie: ${getCategoryById(chipCategoryId)?.name ?? '?'}`
+                : 'Par catégorie'
+              }
+              icon={<Folder size={14} color={chipCategoryId ? '#fff' : theme.text} />}
+              active={chipCategoryId !== null}
+              onPress={() => setShowCategoryPicker(true)}
+              onClear={chipCategoryId ? () => setChipCategoryId(null) : undefined}
+              theme={theme}
+              primary={appColors.primary}
+            />
+            <FilterChip
+              label="Priorité haute"
+              icon={<Flag size={14} color={chipHighPriority ? '#fff' : theme.error} />}
+              active={chipHighPriority}
+              onPress={() => setChipHighPriority((v) => !v)}
+              theme={theme}
+              primary={appColors.primary}
+            />
+            <FilterChip
+              label="En retard"
+              icon={<AlertCircle size={14} color={chipOverdue ? '#fff' : theme.error} />}
+              active={chipOverdue}
+              onPress={() => setChipOverdue((v) => !v)}
+              theme={theme}
+              primary={appColors.primary}
+            />
+          </ScrollView>
         )}
-
-        {/* Chips de filtres avancés combinables (Mes / Que j'ai créées /
-            Catégorie / Priorité haute / En retard). Toujours visibles, marchent
-            aussi en combinaison avec la recherche. */}
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipsScrollView}
-          contentContainerStyle={styles.chipsContent}
-        >
-          <FilterChip
-            label="Mes tâches"
-            icon={<User size={14} color={chipMine ? '#fff' : theme.text} />}
-            active={chipMine}
-            onPress={() => setChipMine((v) => !v)}
-            theme={theme}
-            primary={appColors.primary}
-          />
-          <FilterChip
-            label="Tâches données"
-            icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
-            active={chipCreated}
-            onPress={() => setChipCreated((v) => !v)}
-            theme={theme}
-            primary={appColors.primary}
-          />
-          <FilterChip
-            label={chipCategoryId
-              ? `Catégorie: ${getCategoryById(chipCategoryId)?.name ?? '?'}`
-              : 'Par catégorie'
-            }
-            icon={<Folder size={14} color={chipCategoryId ? '#fff' : theme.text} />}
-            active={chipCategoryId !== null}
-            onPress={() => setShowCategoryPicker(true)}
-            onClear={chipCategoryId ? () => setChipCategoryId(null) : undefined}
-            theme={theme}
-            primary={appColors.primary}
-          />
-          <FilterChip
-            label="Priorité haute"
-            icon={<Flag size={14} color={chipHighPriority ? '#fff' : theme.error} />}
-            active={chipHighPriority}
-            onPress={() => setChipHighPriority((v) => !v)}
-            theme={theme}
-            primary={appColors.primary}
-          />
-          <FilterChip
-            label="En retard"
-            icon={<AlertCircle size={14} color={chipOverdue ? '#fff' : theme.error} />}
-            active={chipOverdue}
-            onPress={() => setChipOverdue((v) => !v)}
-            theme={theme}
-            primary={appColors.primary}
-          />
-        </ScrollView>
 
         <ScrollView
           style={styles.scrollView}

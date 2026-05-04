@@ -9,8 +9,9 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2, SlidersHorizontal } from 'lucide-react-native';
+import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2, SlidersHorizontal, Users as UsersIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore } from '@/store/tasks-store';
@@ -31,6 +32,7 @@ import { Header } from '@/components/Header';
 import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
 
 export default function TasksScreen() {
+  const router = useRouter();
   const { user } = useAuthStore();
   const { darkMode } = useSettingsStore();
   const {
@@ -270,6 +272,12 @@ export default function TasksScreen() {
   };
   
   const canAddTask = user?.role === 'admin' || user?.role === 'moderator';
+  // Vague B Phase 3 : "Vue d'équipe" accessible aux admins + RP + RS pour
+  // voir les tâches données aux membres de leur scope (cf. /tasks/team).
+  const canSeeTeamView =
+    user?.role === 'admin' ||
+    user?.role === 'responsable_pole' ||
+    user?.role === 'responsable_secteur';
   
   return (
     <AppLayout
@@ -281,14 +289,29 @@ export default function TasksScreen() {
           title="Mes tâches ✓"
           onTitlePress={() => toggleSidebar?.()}
           rightComponent={
-            canAddTask ? (
-              <Button
-                icon={<Plus size={24} color={theme.text} />}
-                onPress={handleAddTask}
-                variant="text"
-                style={styles.addButton}
-              />
-            ) : null
+            <View style={styles.headerActions}>
+              {canSeeTeamView && (
+                <TouchableOpacity
+                  onPress={() => {
+                    tapHaptic();
+                    router.push('/team-tasks');
+                  }}
+                  style={styles.headerIconBtn}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  accessibilityLabel="Vue d'équipe"
+                >
+                  <UsersIcon size={22} color={theme.text} />
+                </TouchableOpacity>
+              )}
+              {canAddTask && (
+                <Button
+                  icon={<Plus size={24} color={theme.text} />}
+                  onPress={handleAddTask}
+                  variant="text"
+                  style={styles.addButton}
+                />
+              )}
+            </View>
           }
           containerStyle={styles.headerContainer}
         />
@@ -833,6 +856,19 @@ const styles = StyleSheet.create({
   },
   emptyState: { marginTop: 40 },
   addButton: { marginLeft: 8 },
+  // Vague B Phase 3 : barre d'actions à droite du Header (👥 + +)
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerIconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   // Modal picker de catégorie (bottom sheet style)
   pickerBackdrop: {
     flex: 1,

@@ -45,6 +45,7 @@ import { Button } from '@/components/Button';
 import { Header } from '@/components/Header';
 import { Badge } from '@/components/Badge';
 import { AppLayout } from '@/components/AppLayout';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { successHaptic } from '@/utils/haptics';
 
 export default function SettingsScreen() {
@@ -61,25 +62,18 @@ export default function SettingsScreen() {
   const [screenshotUris, setScreenshotUris] = useState<string[]>([]);
   const MAX_SCREENSHOTS = 5;
   const [toggleSidebar, setToggleSidebar] = useState<(() => void) | undefined>(undefined);
+  const [confirmingLogout, setConfirmingLogout] = useState(false);
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
 
   const handleLogout = () => {
-    Alert.alert(
-      'Déconnexion',
-      'Êtes-vous sûr de vouloir vous déconnecter ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Déconnexion',
-          style: 'destructive',
-          onPress: async () => {
-            await logout();
-            router.replace('/login');
-          },
-        },
-      ]
-    );
+    setConfirmingLogout(true);
+  };
+
+  const performLogout = async () => {
+    setConfirmingLogout(false);
+    await logout();
+    router.replace('/login');
   };
 
   const handleProfile = () => router.push('/profile');
@@ -439,6 +433,19 @@ export default function SettingsScreen() {
           </View>
 
         </ScrollView>
+
+        {/* Confirm logout — remplace l'Alert.alert natif blanc moche.
+            Cohérent avec les autres ConfirmModals (delete event/comment). */}
+        <ConfirmModal
+          visible={confirmingLogout}
+          title="Déconnexion"
+          message="Êtes-vous sûr de vouloir vous déconnecter ?"
+          actions={[
+            { label: 'Annuler', style: 'cancel' },
+            { label: 'Se déconnecter', style: 'destructive', onPress: performLogout },
+          ]}
+          onDismiss={() => setConfirmingLogout(false)}
+        />
       </SafeAreaView>
     </AppLayout>
   );

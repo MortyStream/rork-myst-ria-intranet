@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -37,10 +37,19 @@ export default function EditProfileScreen() {
   // Check if the current user can edit a directory profile
   const editableProfile = user ? getUserByEditableBy(user.id) : undefined;
   
+  // ScrollView ref pour auto-scroll vers les champs en bas (phone + bio) quand
+  // le clavier monte. Sans ça, sur Android le clavier masque ces 2 champs même
+  // avec KeyboardAvoidingView (l'auto-resize système ne va pas assez bas).
+  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollToBottom = () => {
+    setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 200);
+  };
+
   const [firstName, setFirstName] = useState(user?.firstName || '');
   const [lastName, setLastName] = useState(user?.lastName || '');
   const [email, setEmail] = useState(user?.email || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [bio, setBio] = useState(user?.bio || '');
   const [profileImage, setProfileImage] = useState<string | undefined>(user?.profileImage);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
@@ -214,6 +223,7 @@ export default function EditProfileScreen() {
           lastName: lastName,
           email: email,
           phone: phone,
+          bio: bio,
           avatarUrl: profileImage,
           updatedAt: new Date().toISOString()
         };
@@ -232,6 +242,7 @@ export default function EditProfileScreen() {
           lastName: lastName,
           email: email,
           phone: phone,
+          bio: bio,
           avatarUrl: profileImage,
           createdAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
@@ -283,6 +294,7 @@ export default function EditProfileScreen() {
         lastName,
         email,
         phone,
+        bio,
         profileImage
       });
       
@@ -317,10 +329,15 @@ export default function EditProfileScreen() {
       
       <KeyboardAvoidingView
         style={styles.keyboardAvoidingView}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 100 : 0}
       >
-        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={styles.photoContainer}>
             <TouchableOpacity
               style={[styles.photoButton, { backgroundColor: theme.card, borderColor: theme.border }]}
@@ -390,6 +407,19 @@ export default function EditProfileScreen() {
               containerStyle={styles.inputContainer}
               keyboardType="phone-pad"
               error={errors.phone}
+              onFocus={scrollToBottom}
+            />
+
+            <Input
+              label="Bio"
+              placeholder="Quelques mots sur toi (optionnel)"
+              value={bio}
+              onChangeText={setBio}
+              containerStyle={styles.inputContainer}
+              multiline
+              numberOfLines={3}
+              maxLength={300}
+              onFocus={scrollToBottom}
             />
           </View>
           

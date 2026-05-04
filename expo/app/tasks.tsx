@@ -327,7 +327,7 @@ export default function TasksScreen() {
             primary={appColors.primary}
           />
           <FilterChip
-            label="Que j'ai créées"
+            label="Tâches données"
             icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
             active={chipCreated}
             onPress={() => setChipCreated((v) => !v)}

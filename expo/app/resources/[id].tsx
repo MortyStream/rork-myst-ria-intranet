@@ -36,6 +36,7 @@ import { EmptyState } from '@/components/EmptyState';
 import { Card } from '@/components/Card';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { getCachedOrDownload, isFileCached } from '@/utils/file-cache';
 
 export default function ResourceCategoryScreen() {
@@ -61,6 +62,8 @@ export default function ResourceCategoryScreen() {
   const [cachedItems, setCachedItems] = useState<Record<string, boolean>>({});
   // Map itemId → boolean (true = téléchargement en cours)
   const [downloadingItems, setDownloadingItems] = useState<Record<string, boolean>>({});
+  // Lien externe en attente de confirmation (remplace l'Alert.alert natif).
+  const [linkToOpen, setLinkToOpen] = useState<{ url: string; title: string } | null>(null);
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   const isCategoryResponsible = user ? isUserCategoryResponsible(user.id, id) : false;
@@ -257,19 +260,7 @@ export default function ResourceCategoryScreen() {
         break;
       case 'link':
         if (item.url) {
-          Alert.alert(
-            'Ouvrir le lien',
-            `Vous allez être redirigé vers: ${item.url}`,
-            [
-              { text: 'Annuler', style: 'cancel' },
-              {
-                text: 'OK',
-                onPress: () => Linking.openURL(item.url!).catch(() =>
-                  Alert.alert('Erreur', "Impossible d'ouvrir ce lien.")
-                ),
-              },
-            ]
-          );
+          setLinkToOpen({ url: item.url, title: item.title });
         }
         break;
       case 'file':
@@ -504,6 +495,34 @@ export default function ResourceCategoryScreen() {
             }
           />
         )}
+
+        {/* Confirm ouverture lien externe — remplace l'Alert.alert natif blanc.
+            Cohérent thème sombre, plus l'URL et le titre du lien comme contexte. */}
+        <ConfirmModal
+          visible={linkToOpen !== null}
+          title="Ouvrir le lien"
+          message={linkToOpen
+            ? `Vous allez être redirigé vers :\n\n${linkToOpen.url}\n\nCe lien s'ouvrira dans votre navigateur.`
+            : ''}
+          actions={[
+            { label: 'Annuler', style: 'cancel' },
+            {
+              label: 'Ouvrir',
+              style: 'primary',
+              onPress: async () => {
+                const target = linkToOpen;
+                setLinkToOpen(null);
+                if (!target) return;
+                try {
+                  await Linking.openURL(target.url);
+                } catch {
+                  Alert.alert('Erreur', "Impossible d'ouvrir ce lien.");
+                }
+              },
+            },
+          ]}
+          onDismiss={() => setLinkToOpen(null)}
+        />
       </SafeAreaView>
     </AppLayout>
   );

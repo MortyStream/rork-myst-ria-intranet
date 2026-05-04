@@ -62,6 +62,27 @@
 4. **Drafts / sauvegarde auto des forms** — si user ferme TaskForm en pleine saisie, tout est perdu (Notion / Linear sauvent).
 5. **Mode "ne pas déranger"** / Quiet hours — toggle horaire dans Settings.
 
+### Tâches : panel équipe responsables + workflow validation cross-secteur (M+L)
+
+Discuté avec l'user le 2026-05-04 lors du test Vague A des filtres tâches. Deux features distinctes :
+
+**B — Panel "vue d'équipe" pour responsables** (effort M, ~3-4h)
+- À côté du `+` dans le Header de l'onglet Tâches, ajouter un bouton accessible UNIQUEMENT aux `responsable_pole` / `responsable_secteur`.
+- Ouvre une vue listant : (i) toutes les tâches données aux membres de leur secteur, (ii) si responsable de pôle, aussi les tâches données aux responsables de secteurs sous leur autorité.
+- Permet de scanner d'un coup d'œil la charge de l'équipe.
+- Pré-requis : exposer la hiérarchie pôles/secteurs côté client (déjà dans `users.userGroups[].roleId` + table `user_groups` mais à structurer en helper `getTeamUserIds(userId)`).
+
+**C — Workflow validation cross-secteur** (effort L, ~6-8h)
+- Quand un membre A (ex: makeup) crée une tâche pour un membre B d'un autre secteur (ex: scénario), la tâche doit être validée par le responsable du secteur de B avant que B la voie.
+- États : `pending_approval` (initial), `approved` (visible chez B), `rejected` (annulée, A notifié).
+- Si A ET B sont dans le même secteur → pas de validation requise (status = `pending` direct).
+- Si A est responsable du secteur de B → pas de validation requise (responsable a autorité).
+- Si A est admin → toujours pas de validation requise.
+- Modélisation : ajouter `approvalStatus`, `approvedBy`, `approvedAt`, `rejectedBy`, `rejectionReason` sur `tasks`. Migration RLS pour que B ne voie que les tâches `approved` qui lui sont assignées. Notifications spécifiques (responsable reçoit "Tâche à valider", A reçoit "Tâche approuvée/rejetée").
+- UI : badge "En attente d'approbation" côté A, écran dédié côté responsable.
+
+Ces 2 features méritent une session design écrit (plan validé avant code) — éviter de les bâcler.
+
 ### Long terme — gros refactors L effort
 
 | Item | Pourquoi |

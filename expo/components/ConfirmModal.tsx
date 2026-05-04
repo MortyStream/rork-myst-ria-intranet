@@ -138,6 +138,9 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({
                         fontWeight: buttonStyle.fontWeight,
                       },
                     ]}
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.8}
                   >
                     {action.label}
                   </Text>
@@ -195,7 +198,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 14,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
   },
   actionText: {
     fontSize: 16,

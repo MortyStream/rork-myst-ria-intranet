@@ -9,7 +9,7 @@ import {
   TouchableOpacity,
   Modal,
 } from 'react-native';
-import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2 } from 'lucide-react-native';
+import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2, SlidersHorizontal } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -66,6 +66,25 @@ export default function TasksScreen() {
   // Catégorie : null = pas de filtre, sinon ID de la catégorie
   const [chipCategoryId, setChipCategoryId] = useState<string | null>(null);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  // Filtres avancés (catégorie + priorité + retard) regroupés dans une feuille
+  // dédiée pour ne pas encombrer l'écran principal. Cf. refonte UI 2026-05-05.
+  const [showFiltersSheet, setShowFiltersSheet] = useState(false);
+
+  // Nombre de filtres avancés actifs — badge sur l'icône funnel.
+  const advancedFiltersCount =
+    (chipCategoryId !== null ? 1 : 0) +
+    (chipHighPriority ? 1 : 0) +
+    (chipOverdue ? 1 : 0);
+
+  // Titre dynamique selon les chips status/scope actifs.
+  const dynamicTitle = (() => {
+    if (filter === 'pending' && chipCreated) return 'Tâches données à faire';
+    if (filter === 'completed' && chipCreated) return 'Tâches données terminées';
+    if (filter === 'pending') return 'À faire';
+    if (filter === 'completed') return 'Terminées';
+    if (chipCreated) return 'Tâches données';
+    return 'Toutes les tâches';
+  })();
 
   useEffect(() => {
     initializeTasks().then(() => {
@@ -284,22 +303,11 @@ export default function TasksScreen() {
           />
         </View>
 
-        {/* Filtres unifiés en une seule rangée scrollable horizontalement.
-            Avant : 2 niveaux (3 boutons "Toutes/À faire/Terminées" + chips)
-            qui faisaient doublon visuel. Maintenant : tout en chips avec
-            distinction sémantique :
-              - 2 chips "status" en tête (À faire / Terminées) — radio mutex.
-                Aucun actif = filtre = 'all' (default).
-              - chips d'attributs derrière (Mes / Données / Catégorie / Priorité
-                / Retard) — toggleables, combinables avec status.
-            Pendant une recherche : on cache la rangée (search bypass tout filtre). */}
+        {/* Refonte UI 2026-05-05 : 2 chips simples en tête (À faire / Tâches données),
+            les autres filtres (catégorie / priorité / retard) déplacés dans un bottom-sheet
+            ouvert via le funnel à côté du titre. Plus de scroll horizontal infini. */}
         {!isSearching && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipsScrollView}
-            contentContainerStyle={styles.chipsContent}
-          >
+          <View style={styles.primaryChipsRow}>
             <FilterChip
               label={`À faire (${pendingTasks.length})`}
               icon={<Clock size={14} color={filter === 'pending' ? '#fff' : theme.text} />}
@@ -309,58 +317,46 @@ export default function TasksScreen() {
               primary={appColors.primary}
             />
             <FilterChip
-              label={`Terminées (${completedTasks.length})`}
-              icon={<CheckCircle2 size={14} color={filter === 'completed' ? '#fff' : theme.text} />}
-              active={filter === 'completed'}
-              onPress={() => setFilter(filter === 'completed' ? 'all' : 'completed')}
-              theme={theme}
-              primary={appColors.primary}
-            />
-            <FilterChip
-              label="Mes tâches"
-              icon={<User size={14} color={chipMine ? '#fff' : theme.text} />}
-              active={chipMine}
-              onPress={() => setChipMine((v) => !v)}
-              theme={theme}
-              primary={appColors.primary}
-            />
-            <FilterChip
-              label="Tâches données"
+              label={`Tâches données${chipCreated ? '' : ''}`}
               icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
               active={chipCreated}
               onPress={() => setChipCreated((v) => !v)}
               theme={theme}
               primary={appColors.primary}
             />
-            <FilterChip
-              label={chipCategoryId
-                ? `Catégorie: ${getCategoryById(chipCategoryId)?.name ?? '?'}`
-                : 'Par catégorie'
-              }
-              icon={<Folder size={14} color={chipCategoryId ? '#fff' : theme.text} />}
-              active={chipCategoryId !== null}
-              onPress={() => setShowCategoryPicker(true)}
-              onClear={chipCategoryId ? () => setChipCategoryId(null) : undefined}
-              theme={theme}
-              primary={appColors.primary}
-            />
-            <FilterChip
-              label="Priorité haute"
-              icon={<Flag size={14} color={chipHighPriority ? '#fff' : theme.error} />}
-              active={chipHighPriority}
-              onPress={() => setChipHighPriority((v) => !v)}
-              theme={theme}
-              primary={appColors.primary}
-            />
-            <FilterChip
-              label="En retard"
-              icon={<AlertCircle size={14} color={chipOverdue ? '#fff' : theme.error} />}
-              active={chipOverdue}
-              onPress={() => setChipOverdue((v) => !v)}
-              theme={theme}
-              primary={appColors.primary}
-            />
-          </ScrollView>
+          </View>
+        )}
+
+        {/* Titre dynamique + bouton funnel pour ouvrir le bottom-sheet de filtres
+            avancés. Caché pendant une recherche (search bypass tout filtre). */}
+        {!isSearching && (
+          <View style={styles.titleRow}>
+            <Text style={[styles.titleText, { color: theme.text }]} numberOfLines={1}>
+              {dynamicTitle}
+            </Text>
+            <TouchableOpacity
+              onPress={() => {
+                tapHaptic();
+                setShowFiltersSheet(true);
+              }}
+              style={[
+                styles.funnelButton,
+                {
+                  backgroundColor: advancedFiltersCount > 0 ? appColors.primary : 'transparent',
+                  borderColor: advancedFiltersCount > 0 ? appColors.primary : theme.border,
+                },
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <SlidersHorizontal
+                size={16}
+                color={advancedFiltersCount > 0 ? '#fff' : theme.text}
+              />
+              {advancedFiltersCount > 0 && (
+                <Text style={styles.funnelBadge}>{advancedFiltersCount}</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         )}
 
         <ScrollView
@@ -543,6 +539,116 @@ export default function TasksScreen() {
             </TouchableOpacity>
           </TouchableOpacity>
         </Modal>
+
+        {/* Bottom-sheet "Filtres avancés" — refonte UI 2026-05-05.
+            Regroupe Catégorie / Priorité haute / En retard, accessible via le
+            funnel dans le titleRow. Évite la pollution visuelle des chips. */}
+        <Modal
+          visible={showFiltersSheet}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowFiltersSheet(false)}
+        >
+          <TouchableOpacity
+            style={styles.pickerBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowFiltersSheet(false)}
+          >
+            <TouchableOpacity
+              style={[styles.filtersSheet, { backgroundColor: theme.card }]}
+              activeOpacity={1}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.pickerHeader}>
+                <Text style={[styles.pickerTitle, { color: theme.text }]}>Filtres avancés</Text>
+                <TouchableOpacity
+                  onPress={() => setShowFiltersSheet(false)}
+                  hitSlop={{ top: 8, right: 8, bottom: 8, left: 8 }}
+                >
+                  <X size={22} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Catégorie : tappe pour ouvrir le picker (fermeture de la sheet) */}
+              <TouchableOpacity
+                style={[styles.filterRow, { borderBottomColor: theme.border }]}
+                onPress={() => {
+                  setShowFiltersSheet(false);
+                  setTimeout(() => setShowCategoryPicker(true), 200);
+                }}
+              >
+                <View style={styles.filterRowLeft}>
+                  <Folder size={18} color={chipCategoryId ? appColors.primary : theme.text} />
+                  <Text style={[styles.filterRowLabel, { color: theme.text }]}>
+                    {chipCategoryId
+                      ? `Catégorie : ${getCategoryById(chipCategoryId)?.name ?? '?'}`
+                      : 'Par catégorie'}
+                  </Text>
+                </View>
+                {chipCategoryId ? (
+                  <TouchableOpacity
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      setChipCategoryId(null);
+                    }}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <X size={18} color={theme.error} />
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={{ color: darkMode ? theme.inactive : '#888' }}>›</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Priorité haute : toggle */}
+              <TouchableOpacity
+                style={[styles.filterRow, { borderBottomColor: theme.border }]}
+                onPress={() => {
+                  tapHaptic();
+                  setChipHighPriority((v) => !v);
+                }}
+              >
+                <View style={styles.filterRowLeft}>
+                  <Flag size={18} color={chipHighPriority ? theme.error : theme.text} />
+                  <Text style={[styles.filterRowLabel, { color: theme.text }]}>Priorité haute</Text>
+                </View>
+                {chipHighPriority && <Check size={18} color={appColors.primary} />}
+              </TouchableOpacity>
+
+              {/* En retard : toggle */}
+              <TouchableOpacity
+                style={[styles.filterRow, { borderBottomColor: theme.border }]}
+                onPress={() => {
+                  tapHaptic();
+                  setChipOverdue((v) => !v);
+                }}
+              >
+                <View style={styles.filterRowLeft}>
+                  <AlertCircle size={18} color={chipOverdue ? theme.error : theme.text} />
+                  <Text style={[styles.filterRowLabel, { color: theme.text }]}>En retard</Text>
+                </View>
+                {chipOverdue && <Check size={18} color={appColors.primary} />}
+              </TouchableOpacity>
+
+              {/* Effacer tous les filtres avancés */}
+              {advancedFiltersCount > 0 && (
+                <TouchableOpacity
+                  style={[styles.filterClearButton, { borderTopColor: theme.border }]}
+                  onPress={() => {
+                    tapHaptic();
+                    setChipCategoryId(null);
+                    setChipHighPriority(false);
+                    setChipOverdue(false);
+                  }}
+                >
+                  <Text style={[styles.filterClearText, { color: theme.error }]}>
+                    Effacer les filtres ({advancedFiltersCount})
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </Modal>
       </SafeAreaView>
     </AppLayout>
   );
@@ -633,7 +739,7 @@ const styles = StyleSheet.create({
     marginTop: -4,
   },
   filterButton: { marginRight: 8 },
-  // Row de chips horizontale (scrollable car peut dépasser la largeur)
+  // Row de chips horizontale (scrollable car peut dépasser la largeur) — legacy.
   chipsScrollView: {
     flexGrow: 0,
     marginBottom: 12,
@@ -641,6 +747,77 @@ const styles = StyleSheet.create({
   chipsContent: {
     paddingHorizontal: 20,
     alignItems: 'center',
+  },
+  // Refonte UI 2026-05-05 : 2 chips simples en tête + titleRow + funnel.
+  primaryChipsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+    gap: 0, // FilterChip a déjà marginRight 8
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    marginBottom: 12,
+  },
+  titleText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
+  funnelButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  funnelBadge: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  filtersSheet: {
+    width: '100%',
+    maxWidth: 480,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    paddingTop: 16,
+    paddingBottom: 24,
+    alignSelf: 'center',
+  },
+  filterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  filterRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    flex: 1,
+  },
+  filterRowLabel: {
+    fontSize: 15,
+    fontWeight: '500',
+  },
+  filterClearButton: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    marginTop: 4,
+  },
+  filterClearText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   scrollView: { flex: 1 },
   scrollContent: {

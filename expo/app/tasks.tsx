@@ -400,13 +400,13 @@ export default function TasksScreen() {
 
           {tasksToShow.length > 0 ? (
             <View style={styles.section}>
-              {isSearching || hasAdvancedFilter ? (
+              {/* Le titleRow au-dessus de la ScrollView porte déjà le titre dynamique
+                  (ex: "Toutes les tâches", "À faire"). On n'affiche un sectionTitle
+                  ici QUE pour la recherche, parce que le titleRow est masqué pendant
+                  une recherche (cf. !isSearching plus haut). */}
+              {isSearching ? (
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
                   Résultats ({tasksToShow.length})
-                </Text>
-              ) : filter === 'all' ? (
-                <Text style={[styles.sectionTitle, { color: theme.text }]}>
-                  Toutes les tâches
                 </Text>
               ) : null}
               {tasksToShow.map(task => (

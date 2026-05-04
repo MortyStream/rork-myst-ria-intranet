@@ -1,4 +1,26 @@
-export type UserRole = 'admin' | 'moderator' | 'committee' | 'actor' | 'partner' | 'other' | 'user';
+/**
+ * Rôles applicatifs Mystéria.
+ *
+ * Source de vérité = check constraint sur `public.users.role` :
+ *   `admin | responsable_pole | responsable_secteur | membre | user`
+ *
+ * Les valeurs `moderator | committee | actor | partner | other` sont des
+ * legacy laissées pour rétrocompatibilité du code (settings.tsx, /profile,
+ * admin/permissions, etc.) qui n'ont pas encore été migrées. Aucune row en
+ * DB ne porte ces valeurs aujourd'hui — à nettoyer en session dédiée.
+ */
+export type UserRole =
+  | 'admin'
+  | 'responsable_pole'
+  | 'responsable_secteur'
+  | 'membre'
+  | 'user'
+  // Legacy — encore référencé dans des branches conditionnelles d'UI :
+  | 'moderator'
+  | 'committee'
+  | 'actor'
+  | 'partner'
+  | 'other';
 
 export interface UserSector {
   name: string;

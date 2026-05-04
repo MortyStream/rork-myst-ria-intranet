@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -9,7 +9,9 @@ import {
   Alert,
   Platform,
   FlatList,
+  ActivityIndicator,
 } from 'react-native';
+import { getSupabase } from '@/utils/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
@@ -36,6 +38,7 @@ import { Header } from '@/components/Header';
 import { Button } from '@/components/Button';
 import { Avatar } from '@/components/Avatar';
 import { Card } from '@/components/Card';
+import { ConfirmModal } from '@/components/ConfirmModal';
 import { EventParticipant } from '@/types/calendar';
 import { tapHaptic, warningHaptic, successHaptic } from '@/utils/haptics';
 
@@ -50,8 +53,40 @@ export default function EventDetailScreen() {
   const theme = darkMode ? Colors.dark : Colors.light;
 
   const eventId = params.id as string;
-  const event = getEventById(eventId);
+  const eventFromStore = getEventById(eventId);
   const [showParticipants, setShowParticipants] = useState(true);
+  // Confirm modal pour delete event (remplace les 2 Alert.alert natifs blancs).
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // Fallback fetch : si l'event n'est pas en cache local (cas typique : tap
+  // notif "Vous êtes invité à X" sur un event qu'on n'a pas encore initialisé
+  // côté Mélissa parce qu'elle n'a pas ouvert le calendrier depuis), on le
+  // fetch direct via Supabase plutôt que d'afficher "Événement non trouvé".
+  const [fetchedEvent, setFetchedEvent] = useState<typeof eventFromStore | null>(null);
+  const [isFetching, setIsFetching] = useState(false);
+
+  useEffect(() => {
+    if (eventFromStore || !eventId) return;
+    let cancelled = false;
+    setIsFetching(true);
+    (async () => {
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('events')
+          .select('*')
+          .eq('id', eventId)
+          .maybeSingle();
+        if (!cancelled && !error && data) setFetchedEvent(data as any);
+      } catch (e) {
+        console.log('event-detail fallback fetch failed:', e);
+      } finally {
+        if (!cancelled) setIsFetching(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [eventId, eventFromStore]);
+
+  const event = eventFromStore ?? fetchedEvent;
 
   if (!event) {
     return (
@@ -62,9 +97,18 @@ export default function EventDetailScreen() {
           onBackPress={() => router.back()}
         />
         <View style={styles.notFoundContainer}>
-          <Text style={[styles.notFoundText, { color: theme.text }]}>
-            Événement non trouvé
-          </Text>
+          {isFetching ? (
+            <>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <Text style={[styles.notFoundText, { color: theme.text, marginTop: 12 }]}>
+                Chargement…
+              </Text>
+            </>
+          ) : (
+            <Text style={[styles.notFoundText, { color: theme.text }]}>
+              Événement non trouvé
+            </Text>
+          )}
         </View>
       </SafeAreaView>
     );
@@ -113,46 +157,19 @@ export default function EventDetailScreen() {
   };
 
   const handleDeleteEvent = () => {
-    const participantCount = event.participants?.length ?? 0;
-    const detail = participantCount > 0
-      ? `« ${event.title} » sera retiré du calendrier de ${participantCount} participant${participantCount > 1 ? 's' : ''}.`
-      : `« ${event.title} » sera supprimé.`;
+    setConfirmingDelete(true);
+  };
 
-    // Étape 1 : annonce l'impact
-    Alert.alert(
-      'Supprimer l\'événement ?',
-      `${detail}\n\nCette action est définitive et ne peut pas être annulée.`,
-      [
-        { text: 'Annuler', style: 'cancel' },
-        {
-          text: 'Supprimer',
-          style: 'destructive',
-          onPress: () => {
-            // Étape 2 : confirmation finale (uniquement si participants impactés)
-            if (participantCount > 0) {
-              Alert.alert(
-                'Confirmer la suppression',
-                `Vous allez vraiment supprimer « ${event.title} » et notifier ${participantCount} participant${participantCount > 1 ? 's' : ''} ?`,
-                [
-                  { text: 'Non, annuler', style: 'cancel' },
-                  {
-                    text: 'Oui, supprimer',
-                    style: 'destructive',
-                    onPress: async () => {
-                      warningHaptic();
-                      await deleteEvent(event.id);
-                      router.back();
-                    },
-                  },
-                ]
-              );
-            } else {
-              deleteEvent(event.id).then(() => router.back());
-            }
-          }
-        }
-      ]
-    );
+  const performDeleteEvent = async () => {
+    setConfirmingDelete(false);
+    try {
+      warningHaptic();
+      await deleteEvent(event.id);
+      router.back();
+    } catch (e) {
+      console.error('Delete event error:', e);
+      Alert.alert('Erreur', 'Impossible de supprimer l\'événement.');
+    }
   };
 
   const handleOpenMaps = async () => {
@@ -543,6 +560,26 @@ ${event.location || ''}`;
           )}
         </View>
       </ScrollView>
+
+      {/* Confirm delete event — remplace l'ancien Alert.alert natif blanc.
+          Cohérent avec le pattern de calendar/index.tsx (long-press event).
+          1 seul step (avant : 2 Alert.alert chaînés, lourd). */}
+      <ConfirmModal
+        visible={confirmingDelete}
+        title="Supprimer l'événement ?"
+        message={(() => {
+          const count = event.participants?.length ?? 0;
+          const detail = count > 0
+            ? `« ${event.title} » sera retiré du calendrier de ${count} participant${count > 1 ? 's' : ''}.`
+            : `« ${event.title} » sera supprimé.`;
+          return `${detail}\n\nCette action est définitive et ne peut pas être annulée.`;
+        })()}
+        actions={[
+          { label: 'Annuler', style: 'cancel' },
+          { label: 'Supprimer', style: 'destructive', onPress: performDeleteEvent },
+        ]}
+        onDismiss={() => setConfirmingDelete(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -713,6 +750,7 @@ const styles = StyleSheet.create({
   },
   rsvpButtons: {
     flexDirection: 'row',
+    justifyContent: 'center',
     gap: 10,
   },
   rsvpButton: {

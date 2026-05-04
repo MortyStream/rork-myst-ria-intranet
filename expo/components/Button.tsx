@@ -13,6 +13,8 @@ import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
 import { tapHaptic, mediumHaptic, successHaptic, warningHaptic, selectionHaptic } from '@/utils/haptics';
 
+const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
+
 type HapticVariant = 'light' | 'medium' | 'success' | 'warning' | 'selection';
 
 interface ButtonProps {
@@ -157,21 +159,22 @@ export const Button: React.FC<ButtonProps> = ({
     small && styles.smallButton,
     fullWidth && styles.fullWidth,
     style,
+    { transform: [{ scale: scaleAnim }] },
   ];
-  
+
   const textStyles = [
     styles.text,
     getTextStyle(),
     small && styles.smallText,
     textStyle,
   ];
-  
+
   const content = (
     <>
       {loading ? (
-        <ActivityIndicator 
-          size="small" 
-          color={variant === 'primary' || variant === 'secondary' ? '#ffffff' : theme.primary} 
+        <ActivityIndicator
+          size="small"
+          color={variant === 'primary' || variant === 'secondary' ? '#ffffff' : theme.primary}
         />
       ) : (
         <View style={styles.contentContainer}>
@@ -182,45 +185,28 @@ export const Button: React.FC<ButtonProps> = ({
       )}
     </>
   );
-  
-  // On split les styles "layout container" (flex, width, margin, alignSelf)
-  // vers le wrapper Animated.View, sinon le wrapper s'auto-size au contenu et
-  // les flex/fullWidth passés en prop n'ont aucun effet (ex : 2 boutons RSVP
-  // côte-à-côte avec flex:1 → ne flex pas, le 2e overflow). Les styles "visual"
-  // (background, padding, border, etc.) restent sur le TouchableOpacity.
-  const layoutKeys = ['flex', 'flexBasis', 'flexGrow', 'flexShrink', 'width', 'minWidth', 'maxWidth', 'alignSelf', 'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHorizontal', 'marginVertical'] as const;
-  const wrapperLayoutStyle: ViewStyle = {};
-  if (style) {
-    for (const k of layoutKeys) {
-      const v = (style as any)[k];
-      if (v !== undefined) (wrapperLayoutStyle as any)[k] = v;
-    }
-  }
-  if (fullWidth) wrapperLayoutStyle.width = '100%';
 
+  // On anime le TouchableOpacity directement (via AnimatedTouchableOpacity)
+  // au lieu de le wrapper dans un Animated.View. Avantage : aucun split de
+  // layout entre wrapper et inner — le bouton est UN seul composant qui
+  // participe au layout du parent comme avant V3c. Le scale press est juste
+  // une transform visuelle, ne casse aucun flex/wrap/minWidth.
   return (
-    <Animated.View style={[wrapperLayoutStyle, { transform: [{ scale: scaleAnim }] }]}>
-      <TouchableOpacity
-        style={buttonStyles}
-        onPress={handlePress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled || loading}
-        activeOpacity={0.7}
-      >
-        {content}
-      </TouchableOpacity>
-    </Animated.View>
+    <AnimatedTouchableOpacity
+      style={buttonStyles}
+      onPress={handlePress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      disabled={disabled || loading}
+      activeOpacity={0.7}
+    >
+      {content}
+    </AnimatedTouchableOpacity>
   );
 };
 
 const styles = StyleSheet.create({
   button: {
-    // alignSelf: 'stretch' = remplir le wrapper Animated.View dans le cross-axis.
-    // Crucial quand wrapper a flex/width explicite (ex: 2 boutons RSVP côte-à-côte
-    // avec flex:1 sur le wrapper) — sinon le TouchableOpacity s'auto-size au contenu
-    // et le bouton ne remplit pas son wrapper.
-    alignSelf: 'stretch',
     borderRadius: 12,
     paddingVertical: 13,
     paddingHorizontal: 18,

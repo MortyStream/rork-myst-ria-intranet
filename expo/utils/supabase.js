@@ -146,6 +146,68 @@ export const subscribeToTasksList = ({ onInsert, onUpdate, onDelete }) => {
 };
 
 /**
+ * Souscrit aux INSERT/UPDATE/DELETE sur la table `events` (calendrier).
+ * Mêmes principes que subscribeToTasksList : RLS s'applique, on ne reçoit que
+ * les events visibles par l'user courant. Permet à event-detail de détecter
+ * une suppression à distance et de fermer la page proprement (Toast +
+ * router.back), au lieu de laisser l'user bloqué sur un écran fantôme.
+ *
+ * @param {{ onInsert?: (row: any) => void, onUpdate?: (row: any) => void, onDelete?: (row: any) => void }} handlers
+ * @returns {() => void} cleanup function
+ */
+export const subscribeToEventsList = ({ onInsert, onUpdate, onDelete }) => {
+  let cancelled = false;
+  let cleanup = null;
+
+  (async () => {
+    if (!_cachedAccessToken) {
+      try {
+        const supabase = getSupabase();
+        const { data } = await supabase.auth.getSession();
+        const token = data?.session?.access_token;
+        if (token) cacheAccessToken(token);
+      } catch {
+        // Best-effort
+      }
+    }
+
+    if (cancelled) return;
+
+    const realtime = getRealtimeClient();
+    const channel = realtime.channel('events:list');
+
+    channel
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'events' },
+        (payload) => { try { if (payload?.new && onInsert) onInsert(payload.new); } catch (e) { console.log('[Realtime] events:list INSERT cb error:', e?.message); } }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'events' },
+        (payload) => { try { if (payload?.new && onUpdate) onUpdate(payload.new); } catch (e) { console.log('[Realtime] events:list UPDATE cb error:', e?.message); } }
+      )
+      .on(
+        'postgres_changes',
+        { event: 'DELETE', schema: 'public', table: 'events' },
+        (payload) => { try { if (payload?.old && onDelete) onDelete(payload.old); } catch (e) { console.log('[Realtime] events:list DELETE cb error:', e?.message); } }
+      )
+      .subscribe((status) => {
+        console.log('[Realtime] events:list →', status);
+      });
+
+    cleanup = () => {
+      try { channel.unsubscribe(); } catch (e) { console.log('[Realtime] events:list unsubscribe error:', e?.message); }
+    };
+  })();
+
+  return () => {
+    cancelled = true;
+    if (cleanup) cleanup();
+  };
+};
+
+/**
  * Souscrit aux INSERT sur la table `notifications` pour afficher un toast
  * in-app (style WhatsApp slide-down) à la réception d'une nouvelle notif
  * envoyée par l'Edge function ou un autre user.

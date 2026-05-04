@@ -7,7 +7,7 @@ import * as SystemUI from 'expo-system-ui';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore, startTasksRealtimeSync, stopTasksRealtimeSync } from '@/store/tasks-store';
-import { useCalendarStore } from '@/store/calendar-store';
+import { useCalendarStore, startEventsRealtimeSync, stopEventsRealtimeSync } from '@/store/calendar-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useUsersStore } from '@/store/users-store';
 import { SplashScreen } from '@/components/SplashScreen';
@@ -158,10 +158,15 @@ export default function RootLayout() {
   useEffect(() => {
     if (!user?.id || user.id === 'preview-user') {
       stopTasksRealtimeSync();
+      stopEventsRealtimeSync();
       return;
     }
     startTasksRealtimeSync();
-    return () => stopTasksRealtimeSync();
+    startEventsRealtimeSync();
+    return () => {
+      stopTasksRealtimeSync();
+      stopEventsRealtimeSync();
+    };
   }, [user?.id]);
 
   // Init du store users au login. Sans ça, TaskForm ouvert avant tout passage

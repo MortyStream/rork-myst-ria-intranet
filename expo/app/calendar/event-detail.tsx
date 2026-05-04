@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   StyleSheet,
   View,
@@ -76,7 +76,18 @@ export default function EventDetailScreen() {
           .select('*')
           .eq('id', eventId)
           .maybeSingle();
-        if (!cancelled && !error && data) setFetchedEvent(data as any);
+        if (!cancelled && !error && data) {
+          setFetchedEvent(data as any);
+          // On pousse aussi l'event dans le store calendar global. Comme ça, la
+          // souscription Realtime onDelete (cf. startEventsRealtimeSync) peut le
+          // retirer du store si Kévin supprime → notre détection ci-dessous se
+          // déclenche → Toast + back. Sans ça, Mélissa garde un fetchedEvent
+          // local que rien ne retire en cas de suppression à distance.
+          useCalendarStore.setState((state) => {
+            if (state.events.some((e) => e.id === (data as any).id)) return state;
+            return { events: [...state.events, data as any] };
+          });
+        }
       } catch (e) {
         console.log('event-detail fallback fetch failed:', e);
       } finally {
@@ -87,6 +98,34 @@ export default function EventDetailScreen() {
   }, [eventId, eventFromStore]);
 
   const event = eventFromStore ?? fetchedEvent;
+
+  // Détection de suppression à distance : si la row était dans le store et
+  // disparaît (Kévin l'a supprimée pendant que Mélissa était sur l'écran),
+  // on prévient via Toast et on ferme la page automatiquement. Pattern miroir
+  // de TaskDetail (cf. _layout.tsx + startEventsRealtimeSync).
+  const wasInStoreRef = useRef(false);
+  const hasNotifiedRef = useRef(false);
+  useEffect(() => {
+    if (eventFromStore) {
+      wasInStoreRef.current = true;
+      return;
+    }
+    if (wasInStoreRef.current && eventId && !hasNotifiedRef.current) {
+      hasNotifiedRef.current = true;
+      (async () => {
+        try {
+          const Toast = (await import('react-native-toast-message')).default;
+          Toast.show({
+            type: 'info',
+            text1: 'Événement supprimé',
+            text2: 'Cet événement a été supprimé par l\'organisateur.',
+            visibilityTime: 4000,
+          });
+        } catch {}
+        router.back();
+      })();
+    }
+  }, [eventFromStore, eventId, router]);
 
   if (!event) {
     return (

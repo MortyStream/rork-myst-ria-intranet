@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Event, EventParticipant } from '@/types/calendar';
-import { getSupabase } from '@/utils/supabase';
+import { getSupabase, subscribeToEventsList } from '@/utils/supabase';
 import { useAuthStore } from './auth-store';
 import { useNotificationsStore } from './notifications-store';
 import { useUsersStore } from './users-store';
@@ -17,6 +17,42 @@ const fetchEventsFromSupabase = async (): Promise<Event[]> => {
     .order('startTime', { ascending: true });
   if (error) throw error;
   return data ?? [];
+};
+
+// Module-scoped : tient le cleanup de la souscription Realtime globale
+// (INSERT/UPDATE/DELETE sur la table events). Démarrée au login, arrêtée
+// au logout. Pattern miroir de tasks-store.
+let _eventsRealtimeUnsubscribe: (() => void) | null = null;
+
+/** Démarre la sync Realtime de la liste des events. Idempotent. */
+export const startEventsRealtimeSync = () => {
+  if (_eventsRealtimeUnsubscribe) return;
+  _eventsRealtimeUnsubscribe = subscribeToEventsList({
+    onInsert: (newEvent) => {
+      useCalendarStore.setState((state) => {
+        if (state.events.some((e) => e.id === newEvent.id)) return state;
+        return { events: [...state.events, newEvent] };
+      });
+    },
+    onUpdate: (updatedEvent) => {
+      useCalendarStore.setState((state) => ({
+        events: state.events.map((e) => (e.id === updatedEvent.id ? updatedEvent : e)),
+      }));
+    },
+    onDelete: (oldEvent) => {
+      useCalendarStore.setState((state) => ({
+        events: state.events.filter((e) => e.id !== oldEvent.id),
+      }));
+    },
+  });
+};
+
+/** Arrête la sync Realtime. À appeler au logout. */
+export const stopEventsRealtimeSync = () => {
+  if (_eventsRealtimeUnsubscribe) {
+    try { _eventsRealtimeUnsubscribe(); } catch {}
+    _eventsRealtimeUnsubscribe = null;
+  }
 };
 
 interface CalendarState {

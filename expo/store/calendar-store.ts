@@ -5,6 +5,7 @@ import { Event, EventParticipant } from '@/types/calendar';
 import { getSupabase } from '@/utils/supabase';
 import { useAuthStore } from './auth-store';
 import { useNotificationsStore } from './notifications-store';
+import { useUsersStore } from './users-store';
 import { usePendingQueueStore } from './pending-queue-store';
 import { getIsOnline } from '@/components/OfflineBanner';
 
@@ -224,6 +225,27 @@ export const useCalendarStore = create<CalendarStore>()(
           set((state) => ({
             events: state.events.map((e) => (e.id === eventId ? data : e)),
           }));
+
+          // Notifier le créateur de l'event qu'un participant a (re)changé son
+          // RSVP. Pas de notif :
+          //  - si le créateur est lui-même celui qui change (pas de spam à soi-même)
+          //  - si le status est `pending` (retour arrière, pas une vraie décision)
+          //  - si le user qui change n'est pas trouvé en local (edge case)
+          const creatorId = event.createdBy;
+          const isDecision = status === 'confirmed' || status === 'declined';
+          if (isDecision && creatorId && creatorId !== userId) {
+            const participant = useUsersStore.getState().getUserById(userId);
+            const participantName = participant?.firstName ?? 'Quelqu\'un';
+            const verb = status === 'confirmed' ? 'a confirmé' : 'a décliné';
+            const emoji = status === 'confirmed' ? '✅' : '❌';
+            useNotificationsStore.getState().addNotification({
+              title: `${emoji} RSVP mis à jour`,
+              message: `${participantName} ${verb} : "${event.title}".`,
+              targetRoles: [],
+              targetUserIds: [creatorId],
+              eventId,
+            });
+          }
         } catch (err) {
           if (!getIsOnline()) {
             usePendingQueueStore.getState().enqueue({

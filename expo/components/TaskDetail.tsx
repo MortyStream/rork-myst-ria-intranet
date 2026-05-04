@@ -17,10 +17,10 @@ import { useUsersStore } from '@/store/users-store';
 import { useResourcesStore } from '@/store/resources-store';
 import { useAuthStore } from '@/store/auth-store';
 import { useTasksStore } from '@/store/tasks-store';
-import { 
-  Clock, 
-  CheckCircle, 
-  AlertCircle, 
+import {
+  Clock,
+  CheckCircle,
+  AlertCircle,
   Calendar,
   Flag,
   User,
@@ -29,15 +29,17 @@ import {
   X,
   Bell,
   CheckSquare,
-  PlayCircle
+  PlayCircle,
+  Trash2
 } from 'lucide-react-native';
+import { ConfirmModal } from './ConfirmModal';
 import Toast from 'react-native-toast-message';
 import { useRouter } from 'expo-router';
 import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
 import { subscribeToTaskTyping } from '@/utils/supabase';
-import { tapHaptic, mediumHaptic } from '@/utils/haptics';
+import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
 
 interface TaskDetailProps {
   task: Task;
@@ -159,8 +161,37 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   // ID du commentaire pour lequel le picker emoji est ouvert (null = fermé)
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<string | null>(null);
+  // ID du commentaire sur lequel un delete est en cours de confirmation (null = fermé)
+  const [commentToDelete, setCommentToDelete] = useState<TaskComment | null>(null);
   // 4 emojis de base autorisés pour les réactions
   const REACTION_EMOJIS = ['👍', '❤️', '🙏', '😂'];
+
+  // Permission delete commentaire : owner du commentaire OU admin.
+  // Le store Supabase vérifie aussi via RLS sur tasks.UPDATE, donc même si on
+  // affiche l'icône à tort, le serveur refuserait. Mais on évite la latence
+  // en ne montrant l'icône qu'aux users légitimement habilités.
+  const canDeleteComment = (comment: TaskComment): boolean => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    return comment.userId === user.id;
+  };
+
+  const performDeleteComment = async () => {
+    const target = commentToDelete;
+    if (!target) return;
+    setCommentToDelete(null);
+    try {
+      warningHaptic();
+      await useTasksStore.getState().deleteComment(task.id, target.id);
+    } catch (e: any) {
+      console.error('deleteComment error:', e);
+      Toast.show({
+        type: 'error',
+        text1: 'Erreur',
+        text2: 'Le commentaire n\'a pas pu être supprimé.',
+      });
+    }
+  };
   
   const category = getCategoryById(task.categoryId);
   const creator = getUserById(task.assignedBy);
@@ -533,9 +564,24 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                               {commenter ? `${commenter.firstName} ${commenter.lastName}` : 'Utilisateur inconnu'}
                             </Text>
                           </View>
-                          <Text style={[styles.commentDate, { color: darkMode ? theme.inactive : '#666666' }]}>
-                            {formatDate(new Date(comment.createdAt))}
-                          </Text>
+                          <View style={styles.commentMetaRight}>
+                            <Text style={[styles.commentDate, { color: darkMode ? theme.inactive : '#666666' }]}>
+                              {formatDate(new Date(comment.createdAt))}
+                            </Text>
+                            {canDeleteComment(comment) && (
+                              <TouchableOpacity
+                                onPress={() => {
+                                  tapHaptic();
+                                  setCommentToDelete(comment);
+                                }}
+                                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                accessibilityLabel="Supprimer ce commentaire"
+                                style={styles.commentDeleteBtn}
+                              >
+                                <Trash2 size={14} color={darkMode ? theme.inactive : '#888'} />
+                              </TouchableOpacity>
+                            )}
+                          </View>
                         </View>
                         <Text style={[styles.commentContent, { color: theme.text }]}>
                           {comment.content}
@@ -671,6 +717,19 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
         </View>
       </TouchableOpacity>
     </Modal>
+
+    {/* ConfirmModal delete commentaire — visible quand commentToDelete != null.
+        Snapshot de l'id avant performDelete car onDismiss vide le state synchroniquement. */}
+    <ConfirmModal
+      visible={commentToDelete !== null}
+      title="Supprimer ce commentaire ?"
+      message="Le commentaire sera supprimé définitivement."
+      actions={[
+        { label: 'Annuler', style: 'cancel' },
+        { label: 'Supprimer', style: 'destructive', onPress: performDeleteComment },
+      ]}
+      onDismiss={() => setCommentToDelete(null)}
+    />
     </>
   );
 };
@@ -809,6 +868,15 @@ const styles = StyleSheet.create({
   },
   commentDate: {
     fontSize: 12,
+  },
+  commentMetaRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  commentDeleteBtn: {
+    padding: 4,
+    borderRadius: 6,
   },
   commentContent: {
     fontSize: 14,

@@ -347,13 +347,13 @@ ${event.location || ''}`;
                 title="✓ Accepter"
                 onPress={() => handleUpdateStatus('confirmed')}
                 style={[styles.rsvpButton, { backgroundColor: theme.success }]}
-                fullWidth
+                haptic="success"
               />
               <Button
                 title="✕ Décliner"
                 onPress={() => handleUpdateStatus('declined')}
                 style={[styles.rsvpButton, { backgroundColor: theme.error }]}
-                fullWidth
+                haptic="warning"
               />
             </View>
           </View>

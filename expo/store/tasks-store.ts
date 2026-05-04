@@ -256,6 +256,33 @@ export const useTasksStore = create<TasksStore>()(
           set((state) => ({
             tasks: state.tasks.map((t) => (t.id === id ? data : t)),
           }));
+
+          // Notifier le créateur de la tâche (assignedBy) quand un assigné
+          // démarre ou termine. Pas de notif si :
+          //  - l'actor est lui-même le créateur (pas de spam à soi-même)
+          //  - le status n'est pas un événement "remarquable" (pending = retour
+          //    arrière, validated = passe par validateTask qui a sa propre logique)
+          //  - assignedBy est null/absent
+          const taskData = data as Task;
+          const assignedBy = taskData.assignedBy;
+          const isNoteworthy = status === 'in_progress' || status === 'completed';
+          if (
+            isNoteworthy &&
+            assignedBy &&
+            currentUser?.id &&
+            assignedBy !== currentUser.id
+          ) {
+            const actorName = currentUser.firstName ?? 'Quelqu\'un';
+            const verb = status === 'in_progress' ? 'a démarré' : 'a terminé';
+            const emoji = status === 'in_progress' ? '🚧' : '✅';
+            useNotificationsStore.getState().addNotification({
+              title: `${emoji} Tâche ${status === 'in_progress' ? 'démarrée' : 'terminée'}`,
+              message: `${actorName} ${verb} : "${taskData.title}".`,
+              targetRoles: [],
+              targetUserIds: [assignedBy],
+              taskId: id,
+            });
+          }
         } catch (err) {
           // Si on est passé offline pendant la requête → on enqueue, on garde optimistic
           if (!getIsOnline()) {

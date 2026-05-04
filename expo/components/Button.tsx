@@ -183,8 +183,23 @@ export const Button: React.FC<ButtonProps> = ({
     </>
   );
   
+  // On split les styles "layout container" (flex, width, margin, alignSelf)
+  // vers le wrapper Animated.View, sinon le wrapper s'auto-size au contenu et
+  // les flex/fullWidth passés en prop n'ont aucun effet (ex : 2 boutons RSVP
+  // côte-à-côte avec flex:1 → ne flex pas, le 2e overflow). Les styles "visual"
+  // (background, padding, border, etc.) restent sur le TouchableOpacity.
+  const layoutKeys = ['flex', 'flexBasis', 'flexGrow', 'flexShrink', 'width', 'minWidth', 'maxWidth', 'alignSelf', 'margin', 'marginTop', 'marginBottom', 'marginLeft', 'marginRight', 'marginHorizontal', 'marginVertical'] as const;
+  const wrapperLayoutStyle: ViewStyle = {};
+  if (style) {
+    for (const k of layoutKeys) {
+      const v = (style as any)[k];
+      if (v !== undefined) (wrapperLayoutStyle as any)[k] = v;
+    }
+  }
+  if (fullWidth) wrapperLayoutStyle.width = '100%';
+
   return (
-    <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+    <Animated.View style={[wrapperLayoutStyle, { transform: [{ scale: scaleAnim }] }]}>
       <TouchableOpacity
         style={buttonStyles}
         onPress={handlePress}
@@ -201,6 +216,11 @@ export const Button: React.FC<ButtonProps> = ({
 
 const styles = StyleSheet.create({
   button: {
+    // alignSelf: 'stretch' = remplir le wrapper Animated.View dans le cross-axis.
+    // Crucial quand wrapper a flex/width explicite (ex: 2 boutons RSVP côte-à-côte
+    // avec flex:1 sur le wrapper) — sinon le TouchableOpacity s'auto-size au contenu
+    // et le bouton ne remplit pas son wrapper.
+    alignSelf: 'stretch',
     borderRadius: 12,
     paddingVertical: 13,
     paddingHorizontal: 18,

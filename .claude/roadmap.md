@@ -2,7 +2,7 @@
 
 > État du projet, prochaines étapes, ressources externes. À lire pour planifier une nouvelle feature, comprendre où on en est, ou trouver un contact.
 
-**Dernière update** : 2026-05-05 (session intensive Vagues A/B/C + features court terme + UX audit)
+**Dernière update** : 2026-05-06 (chantiers 2/3/4 traités — RLS strict pending_approval, Edge function quiet hours, App Review prêt)
 
 ---
 
@@ -26,29 +26,18 @@ Une dizaine de features et refactors UI/UX ont été livrés sans test device co
 - **Mentions @user** : autocomplete inline dans commentaires, notif aux mentionnés.
 - **Drafts forms** : commencer une tâche/event, fermer l'app, rouvrir → toast "Brouillon restauré".
 - **Récurrence events** : créer event "Hebdomadaire" → 12 occurrences générées automatiquement.
-- **Mode ne pas déranger** : Settings → toggle + plage horaire (ne bloque PAS encore les push côté serveur, cf. limite F5).
+- **Mode ne pas déranger** : Settings → toggle + plage horaire. Vérifier en device qu'un user en quiet hours reçoit la notif in-app (history) mais PAS le push Expo (sonnerie/banner).
 
-### 2. Edge function : consommer `user_in_quiet_hours()` côté serveur
+### 2. Compte démo — étape finale avant submit App Store
 
-Le mode F5 (Ne pas déranger) est livré côté DB + UI Settings. Mais les push ne sont PAS encore filtrés côté serveur. À faire :
-- Dans `supabase/functions/scheduled-reminders/index.ts` : avant chaque insert dans `notifications` ou send push via `sendPushNotifications`, appeler `supabase.rpc('user_in_quiet_hours', { p_user_id: targetId })`. Si true → skip ce destinataire.
-- Dans `expo/utils/push-notifications.ts` `sendPushNotifications` : idem, query par batch via `.in('id', userIds)` + filter.
-- Tester que les notifs créées en DB peuvent garder le record (history) mais que le push (Expo Push API) ne fire pas.
-
-### 3. Compte démo + App Review Notes (App Store / Play Store)
-
-Bundle IDs prêts : `ch.mysteriaevent.intranet` (iOS + Android), EAS project `b2bdb0b9-18cf-40a6-be2c-c7dc1de3333c`. Manquant :
-- **Compte démo** : créer un user `demo@mysteriaevent.ch` rôle `membre`, peuplé avec quelques tâches/events/categories Bible pour que les reviewers Apple voient un état réaliste.
-- **App Review Notes** : screenshots, description française/anglaise, mention que l'app est privée (membres invités uniquement, pas d'inscription publique → important pour passer le review 4.2 Minimum Functionality).
+Les artefacts d'App Review sont prêts (cf. §État livré 2026-05-06 ci-dessous). Restera à :
+- **Provisionner le compte démo** : créer `demo@mysteriaevent.ch` rôle `membre` via `/admin/user-form` (Hard Lesson §5.4 — JAMAIS d'INSERT direct sur `auth.users`)
+- **Lancer le seed** : récupérer le UUID du user créé, le coller dans `supabase/seed_demo_data.sql`, exécuter dans le SQL Editor
+- **Renseigner le mdp démo** dans `.claude/app-review-notes.md` §3 (App Review Notes texte type)
+- **Capturer les screenshots** sur device réel selon la liste `.claude/app-review-notes.md` §6
 - **EAS Build production** : `eas build --profile production --platform all` puis submit. Activera aussi push remote vraies (Expo Go ne supporte pas), Quick Actions long-press icône, Widgets iOS/Android.
 
-### 4. Limite RLS pending_approval (sécurité Vague C)
-
-Vague C (livrée 2026-05-05) filtre les tâches `pending_approval` côté client uniquement. Un user technique qui appelle l'API directement verrait les titres des tâches en attente. Pour serrer :
-- Modifier la policy SELECT sur `public.tasks` : exclure `approvalStatus = 'pending_approval'` SAUF si `assignedBy = current_user_internal_id()` OR validateur potentiel via `tasks_pending_my_approval`.
-- À tester device après pour que la liste classique reste cohérente (le filtre client deviendra redondant — on peut le retirer).
-
-### 5. Refactors L effort (sessions dédiées tests device)
+### 3. Refactors L effort (sessions dédiées tests device)
 
 Reportés depuis l'audit Salvatore. Tous demandent un cycle de tests complet device parce qu'ils touchent zones critiques.
 
@@ -60,7 +49,7 @@ Reportés depuis l'audit Salvatore. Tous demandent un cycle de tests complet dev
 | **`@gorhom/bottom-sheet`** | Refactor UI sur 3 composants (TaskDetail Modal, reaction picker emoji, ParticipantsStack). TaskDetail est central, tests visuels iOS+Android requis. |
 | **Tests Jest baseline** | Setup environment Jest + mocks Zustand/Supabase/AsyncStorage + écriture tests sur stores critiques (auth, tasks). |
 
-### 6. Idées features futures (à valider avec l'asso)
+### 4. Idées features futures (à valider avec l'asso)
 
 - **Catégorie privée pour events** (visible seulement par membres listés) — partiellement implémentable via `restrictedAccess` mais pas exposé pour events.
 - **Calendar export .ics** (importer events Mystéria dans Apple Calendar / Google Calendar natifs).
@@ -73,7 +62,20 @@ Reportés depuis l'audit Salvatore. Tous demandent un cycle de tests complet dev
 
 ---
 
-## ✅ État livré au 2026-05-05
+## ✅ État livré au 2026-05-06
+
+### Session du 2026-05-06 — chantiers 2 / 3 / 4 roadmap
+
+**Chantier 4 — RLS strict pending_approval**
+Policy `tasks_read_authenticated` réécrite : exclut `approvalStatus = 'pending_approval'` SAUF si caller = créateur OU admin/modo OU validateur potentiel (RS du secteur d'un assignee, RP du pôle d'un assignee). Helper SQL `private.can_validate_task(jsonb)` factorise la logique. Filtre client gardé en défense en profondeur. Migration `tasks_rls_strict_pending_approval`.
+
+**Chantier 2 — Edge function quiet hours (F5 complète)**
+Helper batch `public.users_not_in_quiet_hours(uuid[])` (RPC `authenticated`). Branché côté Edge `scheduled-reminders/index.ts` (v4 déployée) + côté client `expo/utils/push-notifications.ts`. Notifs in-app DB conservées (history), seul le push Expo skippe les users en quiet hours. Fail-open si la RPC échoue. Migration `users_not_in_quiet_hours_batch`.
+
+**Chantier 3 — Compte démo + App Review (artefacts prêts)**
+- `.claude/app-review-notes.md` : descriptions FR/EN, App Review note pour reviewers Apple, privacy questionnaire, Info.plist usage descriptions, checklist screenshots, instructions provisioning.
+- `supabase/seed_demo_data.sql` : peuplement idempotent paramétré par UUID demo (3 tâches statuts variés, 2 events upcoming, 1 catégorie Bible + 2 items). Tous préfixés `[Demo]` pour purge facile.
+- Création du compte demo elle-même reste à faire en device (cf. chantier 2 prochains).
 
 ### Sessions du 2026-05-04 / 05 (intensives)
 
@@ -112,10 +114,8 @@ RLS storage avatars, double-tap nav protection, race Realtime tasks doublon, B1 
 
 ### 🟡 Limites connues
 
-1. **RLS strict pending_approval** : filtre client only, pas de RLS DB stricte (cf. chantier 4 ci-dessus).
-2. **Edge function quiet hours** : F5 livré DB + UI mais Edge consomme pas encore le helper (cf. chantier 2).
-3. **Pas de tests automatisés** : Jest baseline reste à faire (cf. chantier 5).
-4. **`supabase-users-store.ts` doublon** : encore consommé par `admin/database.tsx` (panel legacy). Migration prévue (cf. chantier 5).
+1. **Pas de tests automatisés** : Jest baseline reste à faire (cf. chantier 3).
+2. **`supabase-users-store.ts` doublon** : encore consommé par `admin/database.tsx` (panel legacy). Migration prévue (cf. chantier 3).
 
 ### ⏸️ En attente externe
 

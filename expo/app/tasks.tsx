@@ -177,9 +177,9 @@ export default function TasksScreen() {
   };
 
   // Vague C : un assigné ne doit PAS voir une tâche pending_approval dans
-  // sa liste classique (elle est encore en attente du RS). Le créateur la
-  // voit toujours (via assignedBy = lui), et les RS la voient dans la
-  // section "À valider". Filtre appliqué quel que soit le filter status.
+  // sa liste classique. Depuis chantier 4, c'est appliqué côté RLS DB
+  // (policy tasks_read_authenticated). Ce filtre client reste comme
+  // défense en profondeur — coût quasi-nul, masque toute régression RLS.
   const hideIfPendingApprovalAndNotCreator = (t: Task) => {
     if (t.approvalStatus !== 'pending_approval') return true;
     return t.assignedBy === user?.id;

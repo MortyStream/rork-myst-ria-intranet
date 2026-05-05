@@ -101,10 +101,30 @@ export async function sendPushNotifications(
 
   try {
     const supabase = getSupabase();
+
+    // F5 Mode Ne pas déranger : retirer les users en quiet hours avant le push.
+    // Notif in-app DB conservée (créée séparément côté store), seul le push Expo
+    // est skippé. Fail-open : si la RPC échoue, on garde tous les destinataires.
+    let pushTargets = realUserIds;
+    try {
+      const { data: eligible, error: rpcErr } = await supabase.rpc(
+        'users_not_in_quiet_hours',
+        { p_user_ids: realUserIds }
+      );
+      if (!rpcErr && Array.isArray(eligible)) {
+        pushTargets = eligible.map((row: any) =>
+          typeof row === 'string' ? row : row.users_not_in_quiet_hours ?? row
+        );
+      }
+    } catch {
+      // fail-open
+    }
+    if (!pushTargets.length) return;
+
     const { data: rows, error } = await supabase
       .from('push_tokens')
       .select('token')
-      .in('userId', realUserIds);
+      .in('userId', pushTargets);
 
     if (error || !rows?.length) return;
 

@@ -93,6 +93,27 @@ async function fetchTokensForUsers(
   return data.map((r: { token: string }) => r.token).filter(Boolean);
 }
 
+// Filtre F5 (Mode Ne pas déranger) : retire les users en quiet hours.
+// Ne change PAS les targets de la notif in-app (le record DB est conservé
+// dans l'historique), uniquement les destinataires du push Expo.
+async function filterPushEligible(
+  supabase: ReturnType<typeof createClient>,
+  userIds: string[]
+): Promise<string[]> {
+  if (!userIds.length) return [];
+  const { data, error } = await supabase.rpc("users_not_in_quiet_hours", {
+    p_user_ids: userIds,
+  });
+  if (error) {
+    // Fail-open : en cas d'erreur RPC, on ne bloque pas les notifs.
+    console.error("users_not_in_quiet_hours error:", error);
+    return userIds;
+  }
+  return (data ?? []).map((row: string | { users_not_in_quiet_hours: string }) =>
+    typeof row === "string" ? row : row.users_not_in_quiet_hours
+  );
+}
+
 async function createInAppNotification(
   supabase: ReturnType<typeof createClient>,
   payload: {
@@ -171,7 +192,8 @@ async function processTaskReminders(
       : `Plus qu'1h pour finir « ${task.title} » !`;
 
     try {
-      const tokens = await fetchTokensForUsers(supabase, task.assignedTo);
+      const eligibleForPush = await filterPushEligible(supabase, task.assignedTo);
+      const tokens = await fetchTokensForUsers(supabase, eligibleForPush);
       await sendExpoPush(tokens, title, body, { taskId: task.id, type: `task_reminder_${windowType}` });
       await createInAppNotification(supabase, {
         title,
@@ -235,7 +257,8 @@ async function processEventReminders(
     const body = `« ${event.title} » commence dans 1h.`;
 
     try {
-      const tokens = await fetchTokensForUsers(supabase, targets);
+      const eligibleForPush = await filterPushEligible(supabase, targets);
+      const tokens = await fetchTokensForUsers(supabase, eligibleForPush);
       await sendExpoPush(tokens, title, body, { eventId: event.id, type: "event_reminder_1h" });
       await createInAppNotification(supabase, {
         title,

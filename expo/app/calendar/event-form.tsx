@@ -44,6 +44,7 @@ import { successHaptic } from '@/utils/haptics';
 import { Avatar } from '@/components/Avatar';
 import { ParticipantsStack } from '@/components/ParticipantsStack';
 import { User } from '@/types/user';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 // Couleurs disponibles pour les événements
 const EVENT_COLORS = [
@@ -110,8 +111,50 @@ export default function EventFormScreen() {
   const [showParticipantPicker, setShowParticipantPicker] = useState(false);
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // F3 : autosave brouillon. Activé uniquement en mode CRÉATION (pas édition).
+  const draftKey = 'event-form-draft';
+  const draftValues = {
+    title,
+    description,
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+    locationType,
+    location,
+    color,
+    isPinned,
+    categoryId,
+    participants,
+  };
+  const { draft, isLoaded: draftLoaded, clearDraft } = useFormDraft(
+    draftKey,
+    draftValues,
+    { enabled: !existingEvent }
+  );
+
+  useEffect(() => {
+    if (!draftLoaded || !draft || existingEvent) return;
+    if (!draft.title?.trim()) return;
+    setTitle(draft.title || '');
+    setDescription(draft.description || '');
+    if (draft.startDate) setStartDate(new Date(draft.startDate));
+    if (draft.endDate) setEndDate(new Date(draft.endDate));
+    if (draft.locationType) setLocationType(draft.locationType);
+    if (draft.location) setLocation(draft.location);
+    if (draft.color) setColor(draft.color);
+    if (typeof draft.isPinned === 'boolean') setIsPinned(draft.isPinned);
+    if (draft.categoryId) setCategoryId(draft.categoryId);
+    if (Array.isArray(draft.participants)) setParticipants(draft.participants);
+    Toast.show({
+      type: 'info',
+      text1: 'Brouillon restauré',
+      text2: 'Tu reprends là où tu avais laissé.',
+      visibilityTime: 2500,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftLoaded]);
 
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
   
@@ -346,6 +389,8 @@ export default function EventFormScreen() {
           text1: 'Événement créé',
           text2: eventData.title,
         });
+        // F3 : on a sauvegardé avec succès → clear le brouillon
+        await clearDraft();
       }
 
       successHaptic();

@@ -1004,6 +1004,10 @@ export const useAuthStore = create<AuthStore>()(
               bio: user.bio,
               // La colonne Supabase s'appelle avatarUrl, pas profileImage
               avatarUrl: user.profileImage ?? user.avatarUrl,
+              // F5 quiet hours
+              quietHoursEnabled: user.quietHoursEnabled ?? false,
+              quietHoursStart: user.quietHoursStart ?? null,
+              quietHoursEnd: user.quietHoursEnd ?? null,
               updatedAt: new Date().toISOString(),
             })
             .eq('id', user.id);

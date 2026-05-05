@@ -33,6 +33,7 @@ import { Button } from './Button';
 import Toast from 'react-native-toast-message';
 import { Avatar } from './Avatar';
 import { ParticipantsStack } from './ParticipantsStack';
+import { useFormDraft } from '@/hooks/useFormDraft';
 
 interface TaskFormProps {
   categoryId?: string;
@@ -79,6 +80,46 @@ export const TaskForm: React.FC<TaskFormProps> = ({
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempDeadline, setTempDeadline] = useState<Date>(new Date());
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // F3 : autosave brouillon. Activé uniquement en mode CRÉATION (pas édition).
+  // Si l'user ferme l'app ou cancel, on lui propose de reprendre au prochain
+  // open du form via le draft chargé.
+  const draftKey = `task-form-draft${categoryId ? `-${categoryId}` : ''}`;
+  const draftValues = {
+    title,
+    description,
+    selectedCategoryId,
+    assignedTo,
+    deadline: deadline ? deadline.toISOString() : null,
+    priority,
+    needsValidation,
+  };
+  const { draft, isLoaded: draftLoaded, clearDraft } = useFormDraft(
+    draftKey,
+    draftValues,
+    { enabled: !task }
+  );
+
+  // Restore le draft au 1er chargement (uniquement si pas de task à éditer
+  // ET draft non-vide — title minimum requis pour considérer un draft réel).
+  useEffect(() => {
+    if (!draftLoaded || !draft || task) return;
+    if (!draft.title?.trim()) return;
+    setTitle(draft.title || '');
+    setDescription(draft.description || '');
+    if (draft.selectedCategoryId) setSelectedCategoryId(draft.selectedCategoryId);
+    if (Array.isArray(draft.assignedTo)) setAssignedTo(draft.assignedTo);
+    if (draft.deadline) setDeadline(new Date(draft.deadline));
+    if (draft.priority) setPriority(draft.priority);
+    if (typeof draft.needsValidation === 'boolean') setNeedsValidation(draft.needsValidation);
+    Toast.show({
+      type: 'info',
+      text1: 'Brouillon restauré',
+      text2: 'Tu reprends là où tu avais laissé.',
+      visibilityTime: 2500,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftLoaded]);
 
   // Filter categories that the current user is responsible for
  const userCategories = categories.filter(category => 
@@ -162,6 +203,8 @@ export const TaskForm: React.FC<TaskFormProps> = ({
           text1: 'Tâche créée',
           text2: title,
         });
+        // F3 : on a sauvegardé avec succès → clear le brouillon
+        clearDraft();
       }
 
       onSave();

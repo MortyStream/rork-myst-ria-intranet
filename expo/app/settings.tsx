@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   StyleSheet,
   View,
@@ -34,7 +34,10 @@ import {
   UserCircle,
   Camera,
   X,
+  BellOff,
+  Clock,
 } from 'lucide-react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
@@ -50,10 +53,52 @@ import { successHaptic } from '@/utils/haptics';
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, logout, updateUser } = useAuthStore();
   const { darkMode, toggleDarkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
   const appColors = useAppColors();
+
+  // F5 : Mode "Ne pas déranger" — toggle + 2 plages horaires.
+  // L'écriture en DB se fait via auth-store.updateUser, qui pousse via Supabase.
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(user?.quietHoursEnabled ?? false);
+  const [quietHoursStart, setQuietHoursStart] = useState(user?.quietHoursStart ?? '22:00');
+  const [quietHoursEnd, setQuietHoursEnd] = useState(user?.quietHoursEnd ?? '07:00');
+  const [editingQuietField, setEditingQuietField] = useState<'start' | 'end' | null>(null);
+
+  // Resync local si l'user change (changement de session par ex.)
+  useEffect(() => {
+    setQuietHoursEnabled(user?.quietHoursEnabled ?? false);
+    setQuietHoursStart(user?.quietHoursStart ?? '22:00');
+    setQuietHoursEnd(user?.quietHoursEnd ?? '07:00');
+  }, [user?.id, user?.quietHoursEnabled, user?.quietHoursStart, user?.quietHoursEnd]);
+
+  const persistQuietHours = (next: { enabled?: boolean; start?: string; end?: string }) => {
+    if (!user) return;
+    const updated = {
+      ...user,
+      quietHoursEnabled: next.enabled ?? quietHoursEnabled,
+      quietHoursStart: next.start ?? quietHoursStart,
+      quietHoursEnd: next.end ?? quietHoursEnd,
+    };
+    updateUser(updated).catch((e) => {
+      console.log('[settings] quiet hours save error:', e);
+    });
+  };
+
+  const formatTime = (hhmm: string) => hhmm; // déjà au bon format
+
+  const parseHHMM = (date: Date): string => {
+    const hh = date.getHours().toString().padStart(2, '0');
+    const mm = date.getMinutes().toString().padStart(2, '0');
+    return `${hh}:${mm}`;
+  };
+
+  const hhmmToDate = (hhmm: string): Date => {
+    const [h, m] = hhmm.split(':').map((s) => parseInt(s, 10));
+    const d = new Date();
+    d.setHours(isNaN(h) ? 22 : h, isNaN(m) ? 0 : m, 0, 0);
+    return d;
+  };
 
   const [showBugReport, setShowBugReport] = useState(false);
   const [bugDescription, setBugDescription] = useState('');
@@ -401,6 +446,51 @@ export default function SettingsScreen() {
 
           <Divider />
 
+          {/* F5 : Mode Ne pas déranger / Quiet hours */}
+          <View style={styles.section}>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Notifications</Text>
+            <ListItem
+              title="Ne pas déranger"
+              subtitle={
+                quietHoursEnabled
+                  ? `Pas de notifs entre ${quietHoursStart} et ${quietHoursEnd}`
+                  : 'Désactivé'
+              }
+              leftIcon={<BellOff size={20} color={appColors.primary} />}
+              rightIcon={
+                <Switch
+                  value={quietHoursEnabled}
+                  onValueChange={(v) => {
+                    setQuietHoursEnabled(v);
+                    persistQuietHours({ enabled: v });
+                  }}
+                  trackColor={{ false: '#767577', true: `${appColors.primary}80` }}
+                  thumbColor={quietHoursEnabled ? appColors.primary : '#f4f3f4'}
+                />
+              }
+            />
+            {quietHoursEnabled && (
+              <>
+                <ListItem
+                  title="Début de la plage"
+                  subtitle={formatTime(quietHoursStart)}
+                  leftIcon={<Clock size={20} color={appColors.primary} />}
+                  showChevron
+                  onPress={() => setEditingQuietField('start')}
+                />
+                <ListItem
+                  title="Fin de la plage"
+                  subtitle={formatTime(quietHoursEnd)}
+                  leftIcon={<Clock size={20} color={appColors.primary} />}
+                  showChevron
+                  onPress={() => setEditingQuietField('end')}
+                />
+              </>
+            )}
+          </View>
+
+          <Divider />
+
           {/* Support */}
           <View style={styles.section}>
             <Text style={[styles.sectionTitle, { color: theme.text }]}>Support</Text>
@@ -446,6 +536,30 @@ export default function SettingsScreen() {
           ]}
           onDismiss={() => setConfirmingLogout(false)}
         />
+
+        {/* F5 : DateTimePicker pour quiet hours start/end. Spinner mode pour
+            cohérence iOS / Android (le picker compact iOS reste pas mal aussi). */}
+        {editingQuietField !== null && (
+          <DateTimePicker
+            value={hhmmToDate(editingQuietField === 'start' ? quietHoursStart : quietHoursEnd)}
+            mode="time"
+            is24Hour
+            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+            onChange={(event, selectedDate) => {
+              const field = editingQuietField;
+              setEditingQuietField(null);
+              if (event.type === 'dismissed' || !selectedDate) return;
+              const next = parseHHMM(selectedDate);
+              if (field === 'start') {
+                setQuietHoursStart(next);
+                persistQuietHours({ start: next });
+              } else {
+                setQuietHoursEnd(next);
+                persistQuietHours({ end: next });
+              }
+            }}
+          />
+        )}
       </SafeAreaView>
     </AppLayout>
   );

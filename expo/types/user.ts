@@ -52,6 +52,11 @@ export interface User {
   // distinct du `role` applicatif (admin/moderator/etc.). Affiché dans la
   // page user et la UserListItem si défini. Défini en DB côté admin/user-form.
   associationRole?: string;
+  // F5 : Mode "Ne pas déranger" / Quiet hours. Format 'HH:MM' (ex '22:00').
+  // Si quietHoursStart > quietHoursEnd, la plage chevauche minuit (ex 22h→7h).
+  quietHoursEnabled?: boolean;
+  quietHoursStart?: string;
+  quietHoursEnd?: string;
 }
 
 // Added AuthState interface for auth-store.ts

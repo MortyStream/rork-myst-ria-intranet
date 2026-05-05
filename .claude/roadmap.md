@@ -54,13 +54,15 @@
 
 ## 🔥 Priorités prochaines sessions
 
-### Court terme (S/M effort)
+### Court terme S/M (✅ livré 2026-05-05)
 
-1. **Pièces jointes aux tâches** (PDF, image, lien) — très demandé par l'asso. Impact daily.
-2. **Mentions @user dans commentaires** — déjà roadmap, gros impact UX collaboratif.
-3. **Récurrence d'événements** (réunion mensuelle auto) — RRULE simple suffit.
-4. **Drafts / sauvegarde auto des forms** — si user ferme TaskForm en pleine saisie, tout est perdu (Notion / Linear sauvent).
-5. **Mode "ne pas déranger"** / Quiet hours — toggle horaire dans Settings.
+Les 5 features court-terme historiques ont été livrées dans la session du 2026-05-05 :
+
+1. ✅ **Pièces jointes aux tâches** (commit `3560347`) — table `task_attachments` + bucket storage `task-attachments`, composant `TaskAttachments` embed dans `TaskDetail`. 3 types : image, fichier, lien externe.
+2. ✅ **Mentions @user** (commit `7f39c71`) — autocomplete inline dans TaskDetail, parsing au submit, notif aux mentionnés.
+3. ✅ **Récurrence d'événements** (commit `7f39c71`) — `recurrence` enum (weekly/biweekly/monthly/yearly) + génération auto de 5-12 instances filles, badge "Événement récurrent" dans event-detail.
+4. ✅ **Drafts / autosave forms** (commit `7873d97`) — hook `useFormDraft` AsyncStorage, intégré dans TaskForm + EventForm. Toast "Brouillon restauré" si revenu après abandon.
+5. ✅ **Mode "ne pas déranger"** (commit `7873d97`) — colonnes `quietHours*` sur users + helper `public.user_in_quiet_hours()`. UI Settings avec toggle + 2 time pickers. ⚠️ Edge function scheduled-reminders + push-notifications NE consomment PAS encore ce helper (à faire en session Edge dédiée).
 
 ### Tâches : panel équipe responsables + workflow validation cross-secteur (✅ livré 2026-05-05)
 
@@ -82,14 +84,17 @@ Modélisation Pôle → Secteur → Membre + workflow validation. 6 commits, en 
 
 ### Long terme — gros refactors L effort
 
+Tous demandent une **session dédiée tests device** parce que toucher à ces zones a déjà cassé la prod auparavant (cf. `hard-lessons.md`) ou demande une validation visuelle minutieuse.
+
 | Item | Pourquoi |
 |---|---|
 | **Refactor `auth-store.ts`** (1061 lignes → ~600 avec helper unique) | Code critique, dupliqué 3x sur le lookup user. Mérite tests serrés sur device. |
 | **`expo-secure-store`** pour auth-state + tokens | Sécurité tangible. Limite iOS Keychain ~2KB/clé à valider avant. |
-| **Dédoublonner `users-store` vs `supabase-users-store`** | `admin/database.tsx` consomme le legacy. Refactor en chaîne. |
-| **`@gorhom/bottom-sheet`** | Refactor UI sur 3 composants (TaskDetail, reaction picker, ParticipantsStack). |
-| **Tests Jest baseline** | 4-6h juste pour le setup + premiers tests sur auth/tasks. |
+| **Dédoublonner `users-store` vs `supabase-users-store`** | `admin/database.tsx` consomme le legacy avec un mock data flag + 5 méthodes (createUser, updateUser, deleteUser…) qui n'existent pas dans `users-store`. Migration demande soit d'enrichir users-store, soit de refactor admin/database.tsx. |
+| **`@gorhom/bottom-sheet`** | Refactor UI sur 3 composants (TaskDetail Modal, reaction picker, ParticipantsStack). TaskDetail est central, casser l'animation modal = casser l'UX la plus utilisée. Tests visuels iOS+Android requis. |
+| **Tests Jest baseline** | Setup environment Jest + mocks Zustand/Supabase/AsyncStorage + écriture tests : facilement 4-6h pour faire ça bien. |
 | **EAS Build production** | Active push remote, Quick Actions (#10 audit features), Widgets (#13 audit features). |
+| **Edge function quiet hours** | scheduled-reminders + push-notifications doivent appeler `public.user_in_quiet_hours(target_user_id)` avant de fire un push. Sinon F5 (livré 2026-05-05) ne bloque pas les notifs côté serveur. |
 
 ### Compte démo & App Store
 

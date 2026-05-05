@@ -89,6 +89,12 @@ interface TasksStore extends TasksState {
   getUpcomingDeadlines: (days: number) => Task[];
   sendTaskReminder: (taskId: string) => Promise<void>;
   checkAndSendTaskReminders: (userId: string) => void;
+  /** Vague C : approuve une tâche pending_approval. Retourne la task à jour. */
+  approveTask: (taskId: string) => Promise<void>;
+  /** Vague C : rejette une tâche pending_approval avec une raison optionnelle. */
+  rejectTask: (taskId: string, reason?: string) => Promise<void>;
+  /** Vague C : tasks pending_approval que MOI je peux valider (via RPC). */
+  fetchTasksPendingMyApproval: () => Promise<Task[]>;
 }
 
 export const useTasksStore = create<TasksStore>()(
@@ -148,17 +154,60 @@ export const useTasksStore = create<TasksStore>()(
             : [data, ...state.tasks],
         }));
 
-        // Notifier chaque assigné (sauf le créateur)
-        const assignedTo: string[] = taskData.assignedTo ?? [];
-        const toNotify = assignedTo.filter(uid => uid !== taskData.assignedBy);
-        if (toNotify.length > 0) {
-          useNotificationsStore.getState().addNotification({
-            title: '📋 Nouvelle tâche assignée',
-            message: `"${taskData.title}" vous a été assignée.`,
-            targetRoles: [],
-            targetUserIds: toNotify,
-            taskId: data.id,
-          });
+        // Vague C : si la tâche est pending_approval (le trigger DB a détecté
+        // un cross-secteur), on NE notifie PAS les assignés (ils ne doivent
+        // pas voir la tâche tant qu'elle n'est pas approuvée). À la place,
+        // on notifie le RS du secteur des assignés cross-secteur pour qu'il
+        // valide. Sinon (tâche approved direct), comportement classique.
+        const insertedTask = data as Task;
+        if (insertedTask.approvalStatus === 'pending_approval') {
+          // On délègue le calcul du destinataire au backend : la RPC
+          // tasks_pending_my_approval() résoudra le bon RS quand il fetch.
+          // Ici on émet une notif générique aux RS potentiels via une logique
+          // simple côté client : tous les RS des secteurs où sont les assignés.
+          // (Si on veut être chirurgical, on peut faire une RPC dédiée plus tard.)
+          try {
+            const supabaseClient = getSupabase();
+            // Récupère les RS de tous les secteurs où sont les assignés cross-secteur.
+            const assignedToList: string[] = taskData.assignedTo ?? [];
+            if (assignedToList.length > 0) {
+              const { data: rsData } = await supabaseClient
+                .from('sectors')
+                .select('responsibleId, sector_members!inner(userId)')
+                .in('sector_members.userId', assignedToList);
+              const rsIds = Array.from(
+                new Set(
+                  (rsData ?? [])
+                    .map((r: any) => r.responsibleId)
+                    .filter((id: string | null): id is string => !!id && id !== taskData.assignedBy)
+                )
+              );
+              if (rsIds.length > 0) {
+                useNotificationsStore.getState().addNotification({
+                  title: '⏳ Tâche à valider',
+                  message: `"${taskData.title}" attend ton approbation.`,
+                  targetRoles: [],
+                  targetUserIds: rsIds,
+                  taskId: data.id,
+                });
+              }
+            }
+          } catch (notifErr) {
+            console.log('[approval] notif RS error (non-blocking):', notifErr);
+          }
+        } else {
+          // Tâche approved direct → notif classique aux assignés
+          const assignedTo: string[] = taskData.assignedTo ?? [];
+          const toNotify = assignedTo.filter(uid => uid !== taskData.assignedBy);
+          if (toNotify.length > 0) {
+            useNotificationsStore.getState().addNotification({
+              title: '📋 Nouvelle tâche assignée',
+              message: `"${taskData.title}" vous a été assignée.`,
+              targetRoles: [],
+              targetUserIds: toNotify,
+              taskId: data.id,
+            });
+          }
         }
 
         return data.id;
@@ -513,6 +562,75 @@ export const useTasksStore = create<TasksStore>()(
             });
           } catch {}
         }
+      },
+
+      approveTask: async (taskId) => {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.rpc('approve_task', { p_task_id: taskId });
+        if (error) throw error;
+        // Reconcile local : la task devient 'approved'
+        if (data) {
+          set((state) => ({
+            tasks: state.tasks.map((t) => (t.id === taskId ? (data as Task) : t)),
+          }));
+          // Notif au créateur
+          const task = get().getTaskById(taskId) ?? (data as Task);
+          const creator = task.assignedBy;
+          if (creator) {
+            useNotificationsStore.getState().addNotification({
+              title: '✅ Tâche approuvée',
+              message: `Ta tâche "${task.title}" a été approuvée.`,
+              targetRoles: [],
+              targetUserIds: [creator],
+              taskId,
+            });
+          }
+          // Notif aux assignés (la tâche devient visible chez eux)
+          const assignees = (task.assignedTo ?? []).filter((uid) => uid !== creator);
+          if (assignees.length > 0) {
+            useNotificationsStore.getState().addNotification({
+              title: '📋 Nouvelle tâche assignée',
+              message: `"${task.title}" vous a été assignée.`,
+              targetRoles: [],
+              targetUserIds: assignees,
+              taskId,
+            });
+          }
+        }
+      },
+
+      rejectTask: async (taskId, reason) => {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.rpc('reject_task', {
+          p_task_id: taskId,
+          p_reason: reason ?? null,
+        });
+        if (error) throw error;
+        if (data) {
+          set((state) => ({
+            tasks: state.tasks.map((t) => (t.id === taskId ? (data as Task) : t)),
+          }));
+          const task = get().getTaskById(taskId) ?? (data as Task);
+          const creator = task.assignedBy;
+          if (creator) {
+            useNotificationsStore.getState().addNotification({
+              title: '❌ Tâche rejetée',
+              message: reason
+                ? `Ta tâche "${task.title}" a été rejetée. Raison : ${reason}`
+                : `Ta tâche "${task.title}" a été rejetée par le responsable.`,
+              targetRoles: [],
+              targetUserIds: [creator],
+              taskId,
+            });
+          }
+        }
+      },
+
+      fetchTasksPendingMyApproval: async () => {
+        const supabase = getSupabase();
+        const { data, error } = await supabase.rpc('tasks_pending_my_approval');
+        if (error) throw error;
+        return (data as Task[]) ?? [];
       },
 
       getTaskById: (id) => get().tasks.find(t => t.id === id),

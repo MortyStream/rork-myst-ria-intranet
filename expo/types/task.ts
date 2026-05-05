@@ -6,6 +6,18 @@
 export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'validated';
 export type TaskPriority = 'low' | 'medium' | 'high';
 
+/**
+ * Statut d'approval (Vague C, 2026-05-05) — workflow validation cross-secteur.
+ *
+ *  - 'approved' (default) : tâche visible normalement par les assignés. Couvre
+ *    les cas same-secteur, autorité (admin/RP/RS), tâches existantes pré-Vague C.
+ *  - 'pending_approval' : un membre cross-secteur a créé une tâche, le RS du
+ *    secteur de l'assignée doit valider avant que celui-ci la voie.
+ *  - 'rejected' : le RS a refusé, la tâche est annulée (rejectionReason peut
+ *    être consulté par le créateur).
+ */
+export type TaskApprovalStatus = 'pending_approval' | 'approved' | 'rejected';
+
 export interface TaskCommentReactions {
   // Map emoji ('👍', '❤️', '🙏', '😂') → liste des userIds qui ont réagi.
   // Stocké en jsonb dans la row tasks.comments[i].reactions.
@@ -48,4 +60,11 @@ export interface Task {
   reminder1hSentAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /** Vague C : workflow validation cross-secteur. Default 'approved'. */
+  approvalStatus?: TaskApprovalStatus;
+  approvedBy?: string | null;
+  approvedAt?: string | null;
+  rejectedBy?: string | null;
+  rejectedAt?: string | null;
+  rejectionReason?: string | null;
 }

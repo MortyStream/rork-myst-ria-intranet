@@ -30,7 +30,8 @@ import {
   Bell,
   CheckSquare,
   PlayCircle,
-  Trash2
+  Trash2,
+  Check
 } from 'lucide-react-native';
 import { ConfirmModal } from './ConfirmModal';
 import Toast from 'react-native-toast-message';
@@ -39,7 +40,7 @@ import { Avatar } from './Avatar';
 import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
 import { subscribeToTaskTyping } from '@/utils/supabase';
-import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
+import { tapHaptic, mediumHaptic, warningHaptic, successHaptic } from '@/utils/haptics';
 
 interface TaskDetailProps {
   task: Task;
@@ -203,6 +204,68 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const canUpdateStatus = isAssignedToCurrentUser || isCreatedByCurrentUser;
   const canValidate = isCreatedByCurrentUser && task.status === 'completed' && task.needsValidation;
   const canSendReminder = isCreatedByCurrentUser && (task.status === 'pending' || task.status === 'in_progress');
+
+  // Vague C : workflow approval cross-secteur.
+  const isPendingApproval = task.approvalStatus === 'pending_approval';
+  const isApprovalRejected = task.approvalStatus === 'rejected';
+  // Côté UI on affiche les boutons approuver/rejeter à tous les rôles "potentiellement
+  // validateurs" (admin/RP/RS). La RPC backend rejettera si l'user n'a pas
+  // l'autorité — pas de leak.
+  const canApproveTask =
+    isPendingApproval &&
+    (user?.role === 'admin' ||
+      user?.role === 'responsable_pole' ||
+      user?.role === 'responsable_secteur');
+
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectReason, setRejectReason] = useState('');
+  const [isApprovalSubmitting, setIsApprovalSubmitting] = useState(false);
+
+  const handleApproveTask = async () => {
+    if (!canApproveTask) return;
+    setIsApprovalSubmitting(true);
+    try {
+      successHaptic();
+      await useTasksStore.getState().approveTask(task.id);
+      Toast.show({
+        type: 'success',
+        text1: 'Tâche approuvée',
+        text2: 'Les assignés vont la voir maintenant.',
+      });
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Erreur',
+        text2: e?.message ?? "L'approbation a échoué.",
+      });
+    } finally {
+      setIsApprovalSubmitting(false);
+    }
+  };
+
+  const handleConfirmReject = async () => {
+    if (!canApproveTask) return;
+    setRejectModalVisible(false);
+    setIsApprovalSubmitting(true);
+    try {
+      warningHaptic();
+      await useTasksStore.getState().rejectTask(task.id, rejectReason.trim() || undefined);
+      Toast.show({
+        type: 'info',
+        text1: 'Tâche rejetée',
+        text2: 'Le créateur a été notifié.',
+      });
+      setRejectReason('');
+    } catch (e: any) {
+      Toast.show({
+        type: 'error',
+        text1: 'Erreur',
+        text2: e?.message ?? 'Le rejet a échoué.',
+      });
+    } finally {
+      setIsApprovalSubmitting(false);
+    }
+  };
   
   const getStatusText = () => {
     switch (task.status) {
@@ -362,7 +425,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
           >
             <View style={styles.section}>
               <View style={[
-                styles.statusBadge, 
+                styles.statusBadge,
                 { backgroundColor: `${getStatusColor()}20` }
               ]}>
                 {task.status === 'pending' && <Clock size={16} color={getStatusColor()} />}
@@ -372,7 +435,34 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                   {getStatusText()}
                 </Text>
               </View>
-              
+
+              {/* Vague C : badge approval workflow.
+                  - 'pending_approval' : tâche cross-secteur en attente d'un RS
+                  - 'rejected' : tâche refusée (visible côté créateur uniquement) */}
+              {isPendingApproval && (
+                <View style={[styles.approvalBadge, { backgroundColor: `${theme.warning}20`, borderColor: theme.warning }]}>
+                  <Clock size={14} color={theme.warning} />
+                  <Text style={[styles.approvalBadgeText, { color: theme.warning }]}>
+                    En attente d'approbation par un responsable
+                  </Text>
+                </View>
+              )}
+              {isApprovalRejected && (
+                <View style={[styles.approvalBadge, { backgroundColor: `${theme.error}20`, borderColor: theme.error }]}>
+                  <X size={14} color={theme.error} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.approvalBadgeText, { color: theme.error, fontWeight: '700' }]}>
+                      Tâche rejetée
+                    </Text>
+                    {task.rejectionReason && (
+                      <Text style={[styles.approvalBadgeText, { color: theme.error, fontWeight: '400', marginTop: 2 }]}>
+                        Raison : {task.rejectionReason}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+              )}
+
               <Text style={[styles.description, { color: theme.text }]}>
                 {task.description}
               </Text>
@@ -481,12 +571,44 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
               </View>
             </View>
             
-            {canUpdateStatus && (
+            {/* Vague C : approuver / rejeter la tâche pending_approval. Affiché
+                en priorité au-dessus des actions de status (Commencer / Terminer
+                ne s'appliquent pas tant que la tâche n'est pas approuvée). */}
+            {canApproveTask && (
+              <View style={styles.section}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                  Validation
+                </Text>
+                <View style={styles.actionsContainer}>
+                  <Button
+                    title="Approuver"
+                    onPress={handleApproveTask}
+                    loading={isApprovalSubmitting}
+                    style={[styles.actionButton, { backgroundColor: theme.success }]}
+                    leftIcon={<Check size={18} color="#fff" />}
+                    haptic="success"
+                  />
+                  <Button
+                    title="Rejeter"
+                    onPress={() => {
+                      tapHaptic();
+                      setRejectModalVisible(true);
+                    }}
+                    variant="outline"
+                    style={[styles.actionButton, { borderColor: theme.error }]}
+                    textStyle={{ color: theme.error }}
+                    leftIcon={<X size={18} color={theme.error} />}
+                  />
+                </View>
+              </View>
+            )}
+
+            {canUpdateStatus && !isPendingApproval && (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: theme.text }]}>
                   Actions
                 </Text>
-                
+
                 <View style={styles.actionsContainer}>
                   {task.status === 'pending' && (
                     <Button
@@ -730,6 +852,62 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
       ]}
       onDismiss={() => setCommentToDelete(null)}
     />
+
+    {/* Vague C : modal rejet avec raison optionnelle. Le créateur recevra
+        la raison dans la notif, ce qui aide à comprendre pourquoi on refuse. */}
+    <Modal
+      visible={rejectModalVisible}
+      transparent
+      animationType="fade"
+      onRequestClose={() => setRejectModalVisible(false)}
+    >
+      <View style={styles.rejectModalBackdrop}>
+        <View style={[styles.rejectModalCard, { backgroundColor: theme.card }]}>
+          <Text style={[styles.rejectModalTitle, { color: theme.text }]}>
+            Rejeter cette tâche ?
+          </Text>
+          <Text style={[styles.rejectModalSubtitle, { color: darkMode ? theme.inactive : '#666' }]}>
+            Tu peux préciser une raison (optionnel) — elle sera envoyée au créateur.
+          </Text>
+          <TextInput
+            style={[
+              styles.rejectModalInput,
+              {
+                color: theme.text,
+                borderColor: theme.border,
+                backgroundColor: darkMode ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+              },
+            ]}
+            placeholder="Raison du rejet (optionnel)"
+            placeholderTextColor={darkMode ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)'}
+            value={rejectReason}
+            onChangeText={setRejectReason}
+            multiline
+            numberOfLines={3}
+            maxLength={300}
+          />
+          <View style={styles.rejectModalActions}>
+            <TouchableOpacity
+              style={styles.rejectModalBtn}
+              onPress={() => {
+                setRejectModalVisible(false);
+                setRejectReason('');
+              }}
+            >
+              <Text style={[styles.rejectModalBtnText, { color: theme.text }]}>Annuler</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.rejectModalBtn}
+              onPress={handleConfirmReject}
+            >
+              <Text style={[styles.rejectModalBtnText, { color: theme.error, fontWeight: '700' }]}>
+                Rejeter
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
     </>
   );
 };
@@ -973,5 +1151,71 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+
+  // Vague C : approval workflow
+  approvalBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  approvalBadgeText: {
+    fontSize: 13,
+    fontWeight: '600',
+    flex: 1,
+  },
+  rejectModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 32,
+  },
+  rejectModalCard: {
+    width: '100%',
+    maxWidth: 360,
+    borderRadius: 18,
+    padding: 20,
+  },
+  rejectModalTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  rejectModalSubtitle: {
+    fontSize: 13,
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: 18,
+  },
+  rejectModalInput: {
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 12,
+    minHeight: 70,
+    textAlignVertical: 'top',
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  rejectModalActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 8,
+  },
+  rejectModalBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  rejectModalBtnText: {
+    fontSize: 15,
+    fontWeight: '500',
   },
 });

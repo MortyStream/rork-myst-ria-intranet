@@ -62,26 +62,23 @@
 4. **Drafts / sauvegarde auto des forms** — si user ferme TaskForm en pleine saisie, tout est perdu (Notion / Linear sauvent).
 5. **Mode "ne pas déranger"** / Quiet hours — toggle horaire dans Settings.
 
-### Tâches : panel équipe responsables + workflow validation cross-secteur (M+L)
+### Tâches : panel équipe responsables + workflow validation cross-secteur (✅ livré 2026-05-05)
 
-Discuté avec l'user le 2026-05-04 lors du test Vague A des filtres tâches. Deux features distinctes :
+Modélisation Pôle → Secteur → Membre + workflow validation. 6 commits, en 2 vagues.
 
-**B — Panel "vue d'équipe" pour responsables** (effort M, ~3-4h)
-- À côté du `+` dans le Header de l'onglet Tâches, ajouter un bouton accessible UNIQUEMENT aux `responsable_pole` / `responsable_secteur`.
-- Ouvre une vue listant : (i) toutes les tâches données aux membres de leur secteur, (ii) si responsable de pôle, aussi les tâches données aux responsables de secteurs sous leur autorité.
-- Permet de scanner d'un coup d'œil la charge de l'équipe.
-- Pré-requis : exposer la hiérarchie pôles/secteurs côté client (déjà dans `users.userGroups[].roleId` + table `user_groups` mais à structurer en helper `getTeamUserIds(userId)`).
+**Vague B — Panel "vue d'équipe" pour responsables** (livré commits `69ba614` / `4ed8f75` / `6f6bdd8`)
+- Modélisation DB : tables `sectors` + `sector_members`, colonne `user_groups.responsibleId`, helpers `private.is_pole_responsible`, `is_sector_responsible`, `user_team_user_ids`. Cf. migration `vague_b_phase1_sectors_modeling`.
+- Panel admin `/admin/sectors` : CRUD secteurs par pôle, assignation membres, désignation RS/RP.
+- Bouton 👥 dans le Header de l'onglet tâches (admin/RP/RS) → écran `/team-tasks` avec tâches groupées par membre, tri par "tâches en retard" décroissant, filtres status + sheet priorité/retard.
 
-**C — Workflow validation cross-secteur** (effort L, ~6-8h)
-- Quand un membre A (ex: makeup) crée une tâche pour un membre B d'un autre secteur (ex: scénario), la tâche doit être validée par le responsable du secteur de B avant que B la voie.
-- États : `pending_approval` (initial), `approved` (visible chez B), `rejected` (annulée, A notifié).
-- Si A ET B sont dans le même secteur → pas de validation requise (status = `pending` direct).
-- Si A est responsable du secteur de B → pas de validation requise (responsable a autorité).
-- Si A est admin → toujours pas de validation requise.
-- Modélisation : ajouter `approvalStatus`, `approvedBy`, `approvedAt`, `rejectedBy`, `rejectionReason` sur `tasks`. Migration RLS pour que B ne voie que les tâches `approved` qui lui sont assignées. Notifications spécifiques (responsable reçoit "Tâche à valider", A reçoit "Tâche approuvée/rejetée").
-- UI : badge "En attente d'approbation" côté A, écran dédié côté responsable.
-
-Ces 2 features méritent une session design écrit (plan validé avant code) — éviter de les bâcler.
+**Vague C — Workflow validation cross-secteur** (livré commit suivant)
+- ALTER `tasks` : `approvalStatus`, `approvedBy`, `approvedAt`, `rejectedBy`, `rejectedAt`, `rejectionReason`.
+- Trigger BEFORE INSERT auto-set : si actor n'a pas autorité sur AU MOINS un assignee (ni admin, ni RP du pôle, ni partage de secteur), status devient `pending_approval`.
+- RPC `tasks_pending_my_approval()` : retourne les tâches que JE peux valider (RS d'un secteur d'un assignee OU RP du pôle).
+- RPC `approve_task` / `reject_task` (avec raison optionnelle) : sécurisées par check authorization côté DB.
+- Côté front : badge "En attente d'approbation" dans TaskDetail, boutons Approuver/Rejeter pour les validateurs, modal raison de rejet, section "À valider (N)" en tête de l'onglet tâches, notifs dédiées (RS reçoit "Tâche à valider", créateur reçoit "Approuvée"/"Rejetée").
+- Filtre côté client : un assigné ne voit pas une tâche `pending_approval` dans sa liste classique tant qu'elle n'est pas approuvée (créateur la voit toujours via `assignedBy`).
+- ⚠️ Limite connue : pas de RLS strict pour cacher `pending_approval` aux assignés au niveau DB (filtre client only). À serrer en session sécurité dédiée si besoin.
 
 ### Long terme — gros refactors L effort
 

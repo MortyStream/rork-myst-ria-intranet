@@ -163,16 +163,30 @@ export default function TasksScreen() {
     return true;
   };
 
+  // Vague C : un assigné ne doit PAS voir une tâche pending_approval dans
+  // sa liste classique (elle est encore en attente du RS). Le créateur la
+  // voit toujours (via assignedBy = lui), et les RS la voient dans la
+  // section "À valider". Filtre appliqué quel que soit le filter status.
+  const hideIfPendingApprovalAndNotCreator = (t: Task) => {
+    if (t.approvalStatus !== 'pending_approval') return true;
+    return t.assignedBy === user?.id;
+  };
+
   // Si l'user tape qqch → on bypass les filtres (Toutes/À faire/Terminées) et on
   // montre TOUS les résultats matchés peu importe leur état (cf. demande Kévin).
   // Sinon → comportement classique des filtres + chips avancés en AND.
   const tasksToShow = useMemo(() => {
-    if (isSearching) return userTasks.filter((t) => matchesSearch(t) && matchesAdvanced(t));
+    if (isSearching) {
+      return userTasks.filter(
+        (t) => matchesSearch(t) && matchesAdvanced(t) && hideIfPendingApprovalAndNotCreator(t)
+      );
+    }
     const baseList = filter === 'all' ? userTasks :
                      filter === 'pending' ? pendingTasks :
                      completedTasks;
-    if (!hasAdvancedFilter) return baseList;
-    return baseList.filter(matchesAdvanced);
+    const filteredApproval = baseList.filter(hideIfPendingApprovalAndNotCreator);
+    if (!hasAdvancedFilter) return filteredApproval;
+    return filteredApproval.filter(matchesAdvanced);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     isSearching, trimmedQuery, filter,
@@ -278,6 +292,19 @@ export default function TasksScreen() {
     user?.role === 'admin' ||
     user?.role === 'responsable_pole' ||
     user?.role === 'responsable_secteur';
+
+  // Vague C : tâches en attente d'approbation par MOI (RS / RP / admin).
+  // Fetch via RPC au mount + à chaque update du store (pour réagir aux INSERT
+  // Realtime cross-secteur qui m'arrivent en tant que validateur).
+  const [pendingApprovalTasks, setPendingApprovalTasks] = useState<Task[]>([]);
+  const fetchTasksPendingMyApproval = useTasksStore((state) => state.fetchTasksPendingMyApproval);
+
+  useEffect(() => {
+    if (!canSeeTeamView) return;
+    fetchTasksPendingMyApproval()
+      .then((tasks) => setPendingApprovalTasks(tasks))
+      .catch(() => setPendingApprovalTasks([]));
+  }, [canSeeTeamView, allTasksCount, fetchTasksPendingMyApproval]);
   
   return (
     <AppLayout
@@ -401,6 +428,27 @@ export default function TasksScreen() {
             </View>
           ) : (
           <>
+          {/* Vague C : section "À valider" — tâches cross-secteur en attente
+              de mon approbation (RS / RP / admin). Affichée en TÊTE de liste
+              parce que c'est urgent : un membre attend que je décide. */}
+          {!isSearching && pendingApprovalTasks.length > 0 ? (
+            <View style={styles.section}>
+              <Text style={[styles.sectionTitle, { color: theme.warning }]}>
+                À valider ({pendingApprovalTasks.length})
+              </Text>
+              {pendingApprovalTasks.map(task => (
+                <TaskItem
+                  key={`pending-${task.id}`}
+                  task={task}
+                  onPress={() => handleTaskPress(task)}
+                  onToggleDone={() => handleToggleDone(task)}
+                  canToggleDone={false}
+                  onLongPress={() => handleLongPressTask(task)}
+                />
+              ))}
+            </View>
+          ) : null}
+
           {/* Section "En retard" : cachée pendant une recherche OU quand un filtre
               avancé est actif (les overdue matchés apparaissent dans la liste principale). */}
           {!isSearching && !hasAdvancedFilter && overdueTasks.length > 0 && filter !== 'completed' ? (

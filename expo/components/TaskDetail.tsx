@@ -34,6 +34,7 @@ import {
   Check
 } from 'lucide-react-native';
 import { ConfirmModal } from './ConfirmModal';
+import { TaskAttachments } from './TaskAttachments';
 import Toast from 'react-native-toast-message';
 import { useRouter } from 'expo-router';
 import { Avatar } from './Avatar';
@@ -654,7 +655,22 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                 </View>
               </View>
             )}
-            
+
+            {/* F1 : pièces jointes — entre les actions et les commentaires.
+                canAdd : créateur OU assigné OU admin (RLS DB rejettera de
+                toute façon si l'user tente sans avoir l'autorisation). */}
+            <View style={styles.section}>
+              <TaskAttachments
+                taskId={task.id}
+                canAdd={
+                  !!user &&
+                  (user.role === 'admin' ||
+                    task.assignedBy === user.id ||
+                    task.assignedTo.includes(user.id))
+                }
+              />
+            </View>
+
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: theme.text }]}>
                 <MessageSquare size={18} color={theme.primary} style={styles.sectionIcon} /> Commentaires

@@ -24,6 +24,22 @@ export interface TaskCommentReactions {
   [emoji: string]: string[];
 }
 
+/**
+ * Pièce jointe à une tâche (Feature F1, 2026-05-05). Table public.task_attachments.
+ */
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  type: 'file' | 'image' | 'link';
+  name: string;
+  /** URL Supabase storage (file/image) ou URL externe (link). */
+  url: string;
+  mimeType?: string | null;
+  sizeBytes?: number | null;
+  uploadedBy?: string | null;
+  createdAt: string;
+}
+
 export interface TaskComment {
   id: string;
   taskId?: string;

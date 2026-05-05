@@ -38,11 +38,19 @@ const isSameDay = (a: Date, b: Date) =>
 interface CalendarProps {
   onSelectDate: (date: Date) => void;
   selectedDate?: Date;
+  /**
+   * Affiche les pastilles de couleur sous chaque jour qui contient un event.
+   * Désactiver pour les usages de date picker (TaskForm, event-form) où ce
+   * serait du bruit visuel.
+   */
+  showEventIndicators?: boolean;
 }
 
-export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }) => {
+export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate, showEventIndicators = true }) => {
   const { darkMode } = useSettingsStore();
-  // Souscription réactive à la liste complète d'events : toute modif re-rend le calendrier
+  // Souscription réactive à la liste complète d'events : toute modif re-rend le calendrier.
+  // Quand showEventIndicators=false on évite les pastilles MAIS on subscribe quand même —
+  // pas de cost réel, un re-render trivial si events changent pendant que le picker est ouvert.
   const events = useCalendarStore(state => state.events);
   const theme = darkMode ? Colors.dark : Colors.light;
 
@@ -64,7 +72,9 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
 
     // Renvoie les 3 premières couleurs ET le total — permet d'afficher "+N"
     // pour les jours qui ont plus de 3 events (avant : truncation silencieuse).
+    // Court-circuité quand showEventIndicators=false (mode date picker).
     const getDayInfo = (date: Date): { colors: string[]; total: number } => {
+      if (!showEventIndicators) return { colors: [], total: 0 };
       const matching = events.filter(e => {
         const d = new Date(e.startTime);
         return isSameDay(d, date);
@@ -99,7 +109,7 @@ export const Calendar: React.FC<CalendarProps> = ({ onSelectDate, selectedDate }
     }
 
     return days;
-  }, [currentMonth, currentYear, events, theme.primary]);
+  }, [currentMonth, currentYear, events, theme.primary, showEventIndicators]);
 
   const goToPreviousMonth = () => {
     if (currentMonth === 0) {

@@ -16,6 +16,7 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import { DatePickerModal } from '@/components/DatePickerModal';
 import {
   Calendar,
   Clock,
@@ -705,24 +706,40 @@ export default function EventFormScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* Date & Time Pickers — Android : dialog native standard */}
-      {Platform.OS === 'android' && showStartDatePicker && (
-        <DateTimePicker value={startDate} mode="date" display="default" onChange={handleStartDateChange} />
-      )}
+      {/* R1 : Date pickers custom thémés (remplacent native Android + iOS spinner) */}
+      <DatePickerModal
+        visible={showStartDatePicker}
+        initialDate={startDate}
+        title="Date de début"
+        onCancel={closeAllPickers}
+        onConfirm={(d) => {
+          applyPickerValue(d);
+          closeAllPickers();
+        }}
+      />
+      <DatePickerModal
+        visible={showEndDatePicker}
+        initialDate={endDate}
+        title="Date de fin"
+        onCancel={closeAllPickers}
+        onConfirm={(d) => {
+          applyPickerValue(d);
+          closeAllPickers();
+        }}
+      />
+
+      {/* Time pickers — Android : dialog native (acceptable, rapide) */}
       {Platform.OS === 'android' && showStartTimePicker && (
         <DateTimePicker value={startDate} mode="time" display="default" onChange={handleStartTimeChange} />
-      )}
-      {Platform.OS === 'android' && showEndDatePicker && (
-        <DateTimePicker value={endDate} mode="date" display="default" onChange={handleEndDateChange} />
       )}
       {Platform.OS === 'android' && showEndTimePicker && (
         <DateTimePicker value={endDate} mode="time" display="default" onChange={handleEndTimeChange} />
       )}
 
-      {/* iOS : Modal avec spinner + bouton Confirmer */}
+      {/* Time pickers — iOS : Modal avec spinner + bouton Confirmer */}
       {Platform.OS === 'ios' && (
         <Modal
-          visible={showStartDatePicker || showStartTimePicker || showEndDatePicker || showEndTimePicker}
+          visible={showStartTimePicker || showEndTimePicker}
           transparent
           animationType="slide"
           onRequestClose={closeAllPickers}
@@ -734,7 +751,7 @@ export default function EventFormScreen() {
                 <Text style={[styles.iosPickerBtnText, { color: theme.inactive }]}>Annuler</Text>
               </TouchableOpacity>
               <Text style={[styles.iosPickerTitle, { color: theme.text }]}>
-                {showStartDatePicker || showEndDatePicker ? 'Choisir une date' : 'Choisir une heure'}
+                Choisir une heure
               </Text>
               <TouchableOpacity onPress={handleIOSConfirm} style={styles.iosPickerBtn}>
                 <Text style={[styles.iosPickerBtnText, { color: theme.primary, fontWeight: '700' }]}>OK</Text>
@@ -742,7 +759,7 @@ export default function EventFormScreen() {
             </View>
             <DateTimePicker
               value={tempDate}
-              mode={showStartDatePicker || showEndDatePicker ? 'date' : 'time'}
+              mode="time"
               display="spinner"
               onChange={handlePickerChange}
               locale="fr-FR"

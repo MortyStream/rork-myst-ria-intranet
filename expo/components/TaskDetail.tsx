@@ -42,6 +42,7 @@ import { Button } from './Button';
 import { formatDate } from '@/utils/date-utils';
 import { subscribeToTaskTyping } from '@/utils/supabase';
 import { tapHaptic, mediumHaptic, warningHaptic, successHaptic } from '@/utils/haptics';
+import { useOnboardingTip } from '@/hooks/useOnboardingTip';
 
 interface TaskDetailProps {
   task: Task;
@@ -219,6 +220,13 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const creator = getUserById(task.assignedBy);
   const assignees = task.assignedTo.map(id => getUserById(id)).filter(Boolean);
   const validator = task.validatedBy ? getUserById(task.validatedBy) : null;
+
+  // Tip onboarding "long-press commentaire = réagir emoji" — affiché 1×
+  // quand l'user ouvre une tâche qui contient déjà au moins un commentaire.
+  useOnboardingTip(
+    'comment-long-press',
+    !!task.comments && task.comments.length > 0
+  );
   
   const isAssignedToCurrentUser = user ? task.assignedTo.includes(user.id) : false;
   const isCreatedByCurrentUser = user ? task.assignedBy === user.id : false;

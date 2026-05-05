@@ -28,4 +28,9 @@ export interface Event {
   recurrence?: EventRecurrence | null;
   /** F4 : ref vers l'event "mère" si cette row est une instance générée. */
   recurrenceParentId?: string | null;
+  /**
+   * Visibilité restreinte : si true, seul le créateur, les participants
+   * inscrits et les admins/modos voient cet event (RLS DB stricte). Default false.
+   */
+  restrictedAccess?: boolean;
 }

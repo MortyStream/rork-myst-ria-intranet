@@ -23,6 +23,7 @@ import {
   MapPin,
   Video,
   PinIcon,
+  Lock,
   Palette,
   Repeat,
   Users,
@@ -97,6 +98,7 @@ export default function EventFormScreen() {
   const [location, setLocation] = useState(existingEvent?.location || '');
   const [color, setColor] = useState(existingEvent?.color || EVENT_COLORS[0]);
   const [isPinned, setIsPinned] = useState(existingEvent?.isPinned || false);
+  const [restrictedAccess, setRestrictedAccess] = useState(existingEvent?.restrictedAccess || false);
   // F4 : récurrence (uniquement en création — pas en édition d'une instance).
   const [recurrence, setRecurrence] = useState<'weekly' | 'biweekly' | 'monthly' | 'yearly' | null>(
     existingEvent?.recurrence ?? null
@@ -137,6 +139,7 @@ export default function EventFormScreen() {
     location,
     color,
     isPinned,
+    restrictedAccess,
     categoryId,
     participants,
   };
@@ -157,6 +160,7 @@ export default function EventFormScreen() {
     if (draft.location) setLocation(draft.location);
     if (draft.color) setColor(draft.color);
     if (typeof draft.isPinned === 'boolean') setIsPinned(draft.isPinned);
+    if (typeof draft.restrictedAccess === 'boolean') setRestrictedAccess(draft.restrictedAccess);
     if (draft.categoryId) setCategoryId(draft.categoryId);
     if (Array.isArray(draft.participants)) setParticipants(draft.participants);
     Toast.show({
@@ -309,6 +313,7 @@ export default function EventFormScreen() {
         locationType,
         color,
         isPinned,
+        restrictedAccess,
         categoryId: categoryId || undefined,
         // F4 : récurrence (uniquement en création — désactivée en édition).
         recurrence: existingEvent ? null : recurrence,
@@ -619,6 +624,26 @@ export default function EventFormScreen() {
               {isPinned
                 ? "Cet événement sera affiché dans les actualités sur la page d'accueil."
                 : "Cet événement ne sera pas mis en avant sur la page d'accueil."}
+            </Text>
+
+            <View style={styles.switchContainer}>
+              <View style={styles.switchTextContainer}>
+                <Lock size={20} color={theme.primary} style={styles.switchIcon} />
+                <Text style={[styles.switchLabel, { color: theme.text }]}>
+                  Événement privé
+                </Text>
+              </View>
+              <Switch
+                value={restrictedAccess}
+                onValueChange={setRestrictedAccess}
+                trackColor={{ false: '#767577', true: `${theme.primary}80` }}
+                thumbColor={restrictedAccess ? theme.primary : '#f4f3f4'}
+              />
+            </View>
+            <Text style={[styles.helperText, { color: darkMode ? theme.inactive : '#666666' }]}>
+              {restrictedAccess
+                ? "Visible uniquement par toi, les invités et les admins."
+                : "Visible par tous les membres de l'asso."}
             </Text>
 
             {/* F4 : récurrence — visible uniquement en création */}

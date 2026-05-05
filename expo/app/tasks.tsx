@@ -16,6 +16,7 @@ import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, 
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useOnboardingTip } from '@/hooks/useOnboardingTip';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore } from '@/store/tasks-store';
@@ -164,6 +165,9 @@ export default function TasksScreen() {
   }, [filtersLoaded, filter, chipMine, chipCreated, chipHighPriority, chipOverdue, chipCategoryId]);
   
   const userTasks = user ? getUserTasks(user.id) : [];
+  // Tooltip onboarding : affiche une fois quand la liste a au moins 1 tâche
+  // (sinon le tip n'a aucun sens — rien à long-presser).
+  useOnboardingTip('tasks-long-press', !!user && userTasks.length > 0);
   const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];
 
   const pendingTasks = userTasks.filter(task =>

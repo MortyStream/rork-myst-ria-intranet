@@ -17,6 +17,7 @@ import {
   Calendar as CalendarIcon,
   Users,
   ChevronRight,
+  Lock,
 } from 'lucide-react-native';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -31,6 +32,7 @@ import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { mediumHaptic, warningHaptic } from '@/utils/haptics';
+import { useOnboardingTip } from '@/hooks/useOnboardingTip';
 
 export default function CalendarScreen() {
   const router = useRouter();
@@ -52,6 +54,14 @@ export default function CalendarScreen() {
   useEffect(() => {
     initializeEvents();
   }, []);
+
+  // Tooltip onboarding : affiche une fois quand un event existe au moins
+  // (sinon rien à long-presser, le tip n'a pas de sens).
+  // Restreint aux admins/RP — un membre lambda ne peut pas supprimer un event.
+  useOnboardingTip(
+    'events-long-press',
+    isAdminOrModerator && storeEvents.length > 0
+  );
 
   // Recalcul réactif des events du jour. Memoïsé sur la date + le contenu du
   // store (storeEvents) pour éviter de re-filter à chaque render parent
@@ -157,9 +167,14 @@ export default function CalendarScreen() {
         <View style={[styles.eventColorIndicator, { backgroundColor: item.color || theme.primary }]} />
 
         <View style={styles.eventContent}>
-          <Text style={[styles.eventTitle, { color: theme.text }]}>
-            {item.title}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <Text style={[styles.eventTitle, { color: theme.text }]}>
+              {item.title}
+            </Text>
+            {item.restrictedAccess && (
+              <Lock size={13} color={theme.primary} />
+            )}
+          </View>
 
           <View style={styles.eventDetails}>
             <View style={styles.eventDetail}>

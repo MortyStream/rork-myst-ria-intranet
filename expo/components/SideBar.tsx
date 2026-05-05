@@ -20,6 +20,7 @@ import {
   LogOut,
   CheckSquare,
   Calendar,
+  Search,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -62,6 +63,11 @@ export const SideBar: React.FC<SideBarProps> = ({ onClose }) => {
       name: 'Accueil',
       path: '/home',
       icon: (isActive: boolean) => <Home size={24} color={isActive ? appColors.primary : theme.text} />
+    },
+    {
+      name: 'Rechercher',
+      path: '/search',
+      icon: (isActive: boolean) => <Search size={24} color={isActive ? appColors.primary : theme.text} />
     },
     {
       name: 'Mes tâches',

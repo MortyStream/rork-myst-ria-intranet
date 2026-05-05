@@ -28,6 +28,7 @@ import {
   Send,
   Users as UsersIcon,
   Repeat,
+  Lock,
 } from 'lucide-react-native';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -397,6 +398,14 @@ ${event.location || ''}`;
                 {event.recurrence
                   ? 'Événement récurrent — série mère'
                   : 'Occurrence d\'un événement récurrent'}
+              </Text>
+            </View>
+          )}
+          {event.restrictedAccess && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+              <Lock size={13} color={theme.primary} />
+              <Text style={{ fontSize: 12, color: theme.primary, fontStyle: 'italic' }}>
+                Événement privé — visible uniquement par les invités
               </Text>
             </View>
           )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, StyleSheet, ScrollView, TouchableOpacity, Text } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Text, RefreshControl } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Search, Folder, FileText, Link as LinkIcon, Image as ImageIcon, AlignLeft } from 'lucide-react-native';
 import { useResourcesStore } from '@/store/resources-store';
@@ -36,6 +36,7 @@ export default function ResourcesScreen() {
   const theme = darkMode ? Colors.dark : Colors.light;
   const [categories, setCategories] = useState<ResourceCategory[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [refreshing, setRefreshing] = useState(false);
   const {
     getVisibleCategories,
     isLoading,
@@ -54,6 +55,16 @@ export default function ResourcesScreen() {
     const visibleCategories = getVisibleCategories();
     setCategories(visibleCategories);
   };
+
+  const onRefresh = React.useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadCategories();
+    } finally {
+      setRefreshing(false);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Recherche dans items + catégories (nom, description, contenu texte)
   const searchResults = useMemo(() => {
@@ -173,6 +184,13 @@ export default function ResourcesScreen() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={theme.primary}
+            />
+          }
         >
           {/* Skeleton uniquement au tout 1er chargement (cache vide). Si on a déjà
               des catégories en cache (Zustand persist), on saute direct au vrai contenu. */}

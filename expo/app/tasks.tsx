@@ -15,6 +15,7 @@ import {
 import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2, SlidersHorizontal, Users as UsersIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { useTasksStore } from '@/store/tasks-store';
@@ -39,6 +40,17 @@ import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
 }
+
+// Persistance des filtres entre sessions (clé bumpée si la shape change).
+const TASKS_FILTERS_STORAGE_KEY = 'tasks-filters-v1';
+type PersistedTasksFilters = {
+  filter: 'all' | 'pending' | 'completed';
+  chipMine: boolean;
+  chipCreated: boolean;
+  chipHighPriority: boolean;
+  chipOverdue: boolean;
+  chipCategoryId: string | null;
+};
 
 const animateNext = () => {
   LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -106,6 +118,50 @@ export default function TasksScreen() {
       if (user?.id) checkAndSendTaskReminders(user.id);
     });
   }, []);
+
+  // Restore filtres sauvegardés à l'ouverture du screen. La save effect plus
+  // bas est gated par filtersLoaded pour éviter d'écraser le storage avec les
+  // valeurs par défaut avant que la lecture async se termine.
+  const [filtersLoaded, setFiltersLoaded] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    AsyncStorage.getItem(TASKS_FILTERS_STORAGE_KEY)
+      .then((raw) => {
+        if (cancelled || !raw) {
+          if (!cancelled) setFiltersLoaded(true);
+          return;
+        }
+        try {
+          const saved: Partial<PersistedTasksFilters> = JSON.parse(raw);
+          if (saved.filter === 'all' || saved.filter === 'pending' || saved.filter === 'completed') {
+            setFilter(saved.filter);
+          }
+          if (typeof saved.chipMine === 'boolean') setChipMine(saved.chipMine);
+          if (typeof saved.chipCreated === 'boolean') setChipCreated(saved.chipCreated);
+          if (typeof saved.chipHighPriority === 'boolean') setChipHighPriority(saved.chipHighPriority);
+          if (typeof saved.chipOverdue === 'boolean') setChipOverdue(saved.chipOverdue);
+          if (saved.chipCategoryId === null || typeof saved.chipCategoryId === 'string') {
+            setChipCategoryId(saved.chipCategoryId);
+          }
+        } catch {
+          // Storage corrompu, on ignore et on repart de défauts.
+        } finally {
+          setFiltersLoaded(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setFiltersLoaded(true);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    if (!filtersLoaded) return;
+    const payload: PersistedTasksFilters = {
+      filter, chipMine, chipCreated, chipHighPriority, chipOverdue, chipCategoryId,
+    };
+    AsyncStorage.setItem(TASKS_FILTERS_STORAGE_KEY, JSON.stringify(payload)).catch(() => {});
+  }, [filtersLoaded, filter, chipMine, chipCreated, chipHighPriority, chipOverdue, chipCategoryId]);
   
   const userTasks = user ? getUserTasks(user.id) : [];
   const overdueTasks = user ? getOverdueTasks().filter(task => task.assignedTo.includes(user.id)) : [];

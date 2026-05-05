@@ -318,7 +318,16 @@ export default function NotificationsScreen() {
         />
 
         {showCategorySettings ? (
-          <ScrollView contentContainerStyle={styles.categoryListContent}>
+          <ScrollView
+            contentContainerStyle={styles.categoryListContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor={theme.primary}
+              />
+            }
+          >
             {renderControlsRow()}
             {categories.length === 0 ? (
               <EmptyState

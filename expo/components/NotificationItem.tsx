@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, Platform, Animated } from 're
 import { Notification } from '@/types/notification';
 import { Colors } from '@/constants/colors';
 import { useSettingsStore } from '@/store/settings-store';
-import { Bell, FileText, Folder, Calendar, CheckSquare, ChevronRight, Check } from 'lucide-react-native';
+import { Bell, FileText, Folder, Calendar, CheckSquare, ChevronRight, Check, CheckCheck } from 'lucide-react-native';
 import { formatRelativeDate } from '@/utils/date-utils';
 import { useResourcesStore } from '@/store/resources-store';
 import { useTasksStore } from '@/store/tasks-store';
@@ -182,9 +182,20 @@ const NotificationItemComponent: React.FC<NotificationItemProps> = ({
           </Text>
 
           <View style={styles.footerRow}>
-            <Text style={[styles.time, { color: theme.inactive }]}>
-              {formatRelativeDate(new Date(notification.createdAt))}
-            </Text>
+            <View style={styles.timeAndStatus}>
+              <Text style={[styles.time, { color: theme.inactive }]}>
+                {formatRelativeDate(new Date(notification.createdAt))}
+              </Text>
+              {/* Indicateur ✓ / ✓✓ style WhatsApp — masqué sur les notifs obsolètes
+                  pour ne pas brouiller la sémantique avec le badge "Terminée". */}
+              {!isObsolete && (
+                isUnread ? (
+                  <Check size={14} color={theme.inactive} strokeWidth={2.5} />
+                ) : (
+                  <CheckCheck size={14} color={accent} strokeWidth={2.5} />
+                )
+              )}
+            </View>
             {isObsolete && (
               <View style={[styles.obsoleteBadge, { backgroundColor: darkMode ? '#2a2a2a' : '#e8e8e8' }]}>
                 <Check size={10} color={darkMode ? '#888' : '#666'} />
@@ -274,6 +285,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  timeAndStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   obsoleteBadge: {
     flexDirection: 'row',

@@ -37,7 +37,7 @@ import {
   BellOff,
   Clock,
 } from 'lucide-react-native';
-import DateTimePicker from '@react-native-community/datetimepicker';
+import { TimePickerModal } from '@/components/TimePickerModal';
 import { useAuthStore } from '@/store/auth-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors, useAppColors } from '@/constants/colors';
@@ -537,29 +537,26 @@ export default function SettingsScreen() {
           onDismiss={() => setConfirmingLogout(false)}
         />
 
-        {/* F5 : DateTimePicker pour quiet hours start/end. Spinner mode pour
-            cohérence iOS / Android (le picker compact iOS reste pas mal aussi). */}
-        {editingQuietField !== null && (
-          <DateTimePicker
-            value={hhmmToDate(editingQuietField === 'start' ? quietHoursStart : quietHoursEnd)}
-            mode="time"
-            is24Hour
-            display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-            onChange={(event, selectedDate) => {
-              const field = editingQuietField;
-              setEditingQuietField(null);
-              if (event.type === 'dismissed' || !selectedDate) return;
-              const next = parseHHMM(selectedDate);
-              if (field === 'start') {
-                setQuietHoursStart(next);
-                persistQuietHours({ start: next });
-              } else {
-                setQuietHoursEnd(next);
-                persistQuietHours({ end: next });
-              }
-            }}
-          />
-        )}
+        {/* F5 : TimePickerModal custom thémé pour quiet hours start/end (R2 audit). */}
+        <TimePickerModal
+          visible={editingQuietField !== null}
+          initialTime={hhmmToDate(editingQuietField === 'start' ? quietHoursStart : quietHoursEnd)}
+          title={editingQuietField === 'start' ? 'Heure de début' : 'Heure de fin'}
+          onCancel={() => setEditingQuietField(null)}
+          onConfirm={(time) => {
+            const field = editingQuietField;
+            setEditingQuietField(null);
+            if (!field) return;
+            const next = parseHHMM(time);
+            if (field === 'start') {
+              setQuietHoursStart(next);
+              persistQuietHours({ start: next });
+            } else {
+              setQuietHoursEnd(next);
+              persistQuietHours({ end: next });
+            }
+          }}
+        />
       </SafeAreaView>
     </AppLayout>
   );

@@ -15,8 +15,8 @@ import {
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import DateTimePicker from '@react-native-community/datetimepicker';
 import { DatePickerModal } from '@/components/DatePickerModal';
+import { TimePickerModal } from '@/components/TimePickerModal';
 import {
   Calendar,
   Clock,
@@ -118,8 +118,6 @@ export default function EventFormScreen() {
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
   const [showEndDatePicker, setShowEndDatePicker] = useState(false);
   const [showEndTimePicker, setShowEndTimePicker] = useState(false);
-  // Valeurs temporaires pour iOS (la roue ne confirme pas avant d'appuyer sur "OK")
-  const [tempDate, setTempDate] = useState<Date>(new Date());
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showParticipantPicker, setShowParticipantPicker] = useState(false);
@@ -183,14 +181,10 @@ export default function EventFormScreen() {
     }
   }, [isAdminOrModerator]);
 
-  // Android : ferme dès la sélection. iOS : stocke dans tempDate, confirme sur "OK".
   type PickerTarget = 'startDate' | 'startTime' | 'endDate' | 'endTime';
   const [activePickerTarget, setActivePickerTarget] = useState<PickerTarget | null>(null);
 
   const openPicker = (target: PickerTarget) => {
-    const initial =
-      target === 'startDate' || target === 'startTime' ? startDate : endDate;
-    setTempDate(new Date(initial));
     setActivePickerTarget(target);
     if (target === 'startDate') setShowStartDatePicker(true);
     if (target === 'startTime') setShowStartTimePicker(true);
@@ -247,27 +241,6 @@ export default function EventFormScreen() {
     setShowEndTimePicker(false);
     setActivePickerTarget(null);
   };
-
-  // Handlers unifiés
-  const handlePickerChange = (_event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') {
-      closeAllPickers();
-      if (selectedDate) applyPickerValue(selectedDate);
-    } else {
-      // iOS : on met à jour tempDate en temps réel mais on n'applique pas encore
-      if (selectedDate) setTempDate(selectedDate);
-    }
-  };
-
-  const handleIOSConfirm = () => {
-    applyPickerValue(tempDate);
-    closeAllPickers();
-  };
-
-  const handleStartDateChange = handlePickerChange;
-  const handleStartTimeChange = handlePickerChange;
-  const handleEndDateChange = handlePickerChange;
-  const handleEndTimeChange = handlePickerChange;
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString('fr-FR', {
@@ -728,47 +701,27 @@ export default function EventFormScreen() {
         }}
       />
 
-      {/* Time pickers — Android : dialog native (acceptable, rapide) */}
-      {Platform.OS === 'android' && showStartTimePicker && (
-        <DateTimePicker value={startDate} mode="time" display="default" onChange={handleStartTimeChange} />
-      )}
-      {Platform.OS === 'android' && showEndTimePicker && (
-        <DateTimePicker value={endDate} mode="time" display="default" onChange={handleEndTimeChange} />
-      )}
-
-      {/* Time pickers — iOS : Modal avec spinner + bouton Confirmer */}
-      {Platform.OS === 'ios' && (
-        <Modal
-          visible={showStartTimePicker || showEndTimePicker}
-          transparent
-          animationType="slide"
-          onRequestClose={closeAllPickers}
-        >
-          <TouchableOpacity style={styles.iosPickerOverlay} activeOpacity={1} onPress={closeAllPickers} />
-          <View style={[styles.iosPickerContainer, { backgroundColor: theme.card }]}>
-            <View style={[styles.iosPickerHeader, { borderBottomColor: theme.border }]}>
-              <TouchableOpacity onPress={closeAllPickers} style={styles.iosPickerBtn}>
-                <Text style={[styles.iosPickerBtnText, { color: theme.inactive }]}>Annuler</Text>
-              </TouchableOpacity>
-              <Text style={[styles.iosPickerTitle, { color: theme.text }]}>
-                Choisir une heure
-              </Text>
-              <TouchableOpacity onPress={handleIOSConfirm} style={styles.iosPickerBtn}>
-                <Text style={[styles.iosPickerBtnText, { color: theme.primary, fontWeight: '700' }]}>OK</Text>
-              </TouchableOpacity>
-            </View>
-            <DateTimePicker
-              value={tempDate}
-              mode="time"
-              display="spinner"
-              onChange={handlePickerChange}
-              locale="fr-FR"
-              style={styles.iosPickerSpinner}
-              textColor={theme.text}
-            />
-          </View>
-        </Modal>
-      )}
+      {/* R2 : Time pickers custom thémés (remplacent native Android + iOS spinner) */}
+      <TimePickerModal
+        visible={showStartTimePicker}
+        initialTime={startDate}
+        title="Heure de début"
+        onCancel={closeAllPickers}
+        onConfirm={(t) => {
+          applyPickerValue(t);
+          closeAllPickers();
+        }}
+      />
+      <TimePickerModal
+        visible={showEndTimePicker}
+        initialTime={endDate}
+        title="Heure de fin"
+        onCancel={closeAllPickers}
+        onConfirm={(t) => {
+          applyPickerValue(t);
+          closeAllPickers();
+        }}
+      />
 
       {/* Category Picker Modal */}
       {showCategoryPicker && (
@@ -1281,36 +1234,5 @@ const styles = StyleSheet.create({
     padding: 16,
     textAlign: 'center',
     fontStyle: 'italic',
-  },
-  iosPickerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  iosPickerContainer: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingBottom: 34, // safe area bottom
-  },
-  iosPickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-  },
-  iosPickerTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  iosPickerBtn: {
-    padding: 4,
-    minWidth: 60,
-  },
-  iosPickerBtnText: {
-    fontSize: 16,
-  },
-  iosPickerSpinner: {
-    height: 200,
   },
 });

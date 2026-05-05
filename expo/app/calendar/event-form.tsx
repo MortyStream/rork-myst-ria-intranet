@@ -23,6 +23,7 @@ import {
   Video,
   PinIcon,
   Palette,
+  Repeat,
   Users,
   UserPlus,
   X,
@@ -95,6 +96,18 @@ export default function EventFormScreen() {
   const [location, setLocation] = useState(existingEvent?.location || '');
   const [color, setColor] = useState(existingEvent?.color || EVENT_COLORS[0]);
   const [isPinned, setIsPinned] = useState(existingEvent?.isPinned || false);
+  // F4 : récurrence (uniquement en création — pas en édition d'une instance).
+  const [recurrence, setRecurrence] = useState<'weekly' | 'biweekly' | 'monthly' | 'yearly' | null>(
+    existingEvent?.recurrence ?? null
+  );
+  const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
+  const recurrenceLabel = (r: typeof recurrence): string => {
+    if (!r) return 'Aucune';
+    if (r === 'weekly') return 'Hebdomadaire (12 occurrences)';
+    if (r === 'biweekly') return 'Bimensuel (12 occurrences)';
+    if (r === 'monthly') return 'Mensuel (12 occurrences)';
+    return 'Annuel (5 occurrences)';
+  };
   const [categoryId, setCategoryId] = useState(existingEvent?.categoryId || '');
   const [participants, setParticipants] = useState<string[]>(
     existingEvent?.participants?.map(p => p.userId) || []
@@ -323,6 +336,8 @@ export default function EventFormScreen() {
         color,
         isPinned,
         categoryId: categoryId || undefined,
+        // F4 : récurrence (uniquement en création — désactivée en édition).
+        recurrence: existingEvent ? null : recurrence,
       };
 
       if (existingEvent) {
@@ -627,10 +642,47 @@ export default function EventFormScreen() {
               />
             </View>
             <Text style={[styles.helperText, { color: darkMode ? theme.inactive : '#666666' }]}>
-              {isPinned 
-                ? "Cet événement sera affiché dans les actualités sur la page d'accueil." 
+              {isPinned
+                ? "Cet événement sera affiché dans les actualités sur la page d'accueil."
                 : "Cet événement ne sera pas mis en avant sur la page d'accueil."}
             </Text>
+
+            {/* F4 : récurrence — visible uniquement en création */}
+            {!existingEvent && (
+              <>
+                <TouchableOpacity
+                  style={[
+                    {
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 12,
+                      padding: 12,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                      marginTop: 8,
+                    },
+                  ]}
+                  onPress={() => setShowRecurrencePicker(true)}
+                  accessibilityLabel="Choisir la fréquence de répétition"
+                >
+                  <Repeat size={20} color={theme.primary} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.label, { color: darkMode ? theme.inactive : '#666666', marginBottom: 0, fontSize: 12 }]}>
+                      Récurrence
+                    </Text>
+                    <Text style={{ color: theme.text, fontSize: 15, fontWeight: '500' }}>
+                      {recurrenceLabel(recurrence)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {recurrence && (
+                  <Text style={[styles.helperText, { color: darkMode ? theme.inactive : '#666666' }]}>
+                    Les occurrences seront créées automatiquement à partir du {startDate.toLocaleDateString('fr-FR')}.
+                  </Text>
+                )}
+              </>
+            )}
           </View>
 
           <View style={styles.buttonContainer}>
@@ -876,6 +928,62 @@ export default function EventFormScreen() {
           </View>
         </View>
       )}
+
+      {/* F4 : picker récurrence (Modal bottom-sheet style) */}
+      <Modal
+        visible={showRecurrencePicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowRecurrencePicker(false)}
+      >
+        <TouchableOpacity
+          style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', justifyContent: 'flex-end' }}
+          activeOpacity={1}
+          onPress={() => setShowRecurrencePicker(false)}
+        >
+          <TouchableOpacity
+            style={{
+              backgroundColor: theme.card,
+              borderTopLeftRadius: 20,
+              borderTopRightRadius: 20,
+              paddingTop: 16,
+              paddingBottom: 32,
+            }}
+            activeOpacity={1}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={{ paddingHorizontal: 20, paddingBottom: 12, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={{ fontSize: 17, fontWeight: '700', color: theme.text }}>Répétition</Text>
+              <TouchableOpacity onPress={() => setShowRecurrencePicker(false)}>
+                <Text style={{ color: theme.primary, fontSize: 14 }}>Fermer</Text>
+              </TouchableOpacity>
+            </View>
+            {([null, 'weekly', 'biweekly', 'monthly', 'yearly'] as const).map((opt) => (
+              <TouchableOpacity
+                key={opt ?? 'none'}
+                style={{
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  paddingHorizontal: 20,
+                  paddingVertical: 14,
+                  borderBottomWidth: StyleSheet.hairlineWidth,
+                  borderBottomColor: theme.border,
+                }}
+                onPress={() => {
+                  setRecurrence(opt);
+                  setShowRecurrencePicker(false);
+                }}
+              >
+                <Text style={{ color: theme.text, fontSize: 15 }}>{recurrenceLabel(opt)}</Text>
+                {recurrence === opt && (
+                  <Repeat size={16} color={theme.primary} />
+                )}
+              </TouchableOpacity>
+            ))}
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }

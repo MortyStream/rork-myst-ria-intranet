@@ -5,6 +5,8 @@ export interface EventParticipant {
   notificationSent?: boolean;
 }
 
+export type EventRecurrence = 'weekly' | 'biweekly' | 'monthly' | 'yearly';
+
 export interface Event {
   id: string;
   title: string;
@@ -22,4 +24,8 @@ export interface Event {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /** F4 : récurrence simple. Si défini, l'event a généré N instances suivantes. */
+  recurrence?: EventRecurrence | null;
+  /** F4 : ref vers l'event "mère" si cette row est une instance générée. */
+  recurrenceParentId?: string | null;
 }

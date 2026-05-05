@@ -149,8 +149,26 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
    * (max 1 fois toutes les 2.5s) → les autres users sur la même tâche voient
    * "X est en train d'écrire...". Pas de spam WS même si l'user tape vite.
    */
+  const [newComment, setNewComment] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  // F2 : mentions @user. mentionQuery = string si l'user est en train de taper
+  // une mention (après @), null sinon. Picker affiché au-dessus du TextInput.
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+
+  /**
+   * Wrapper autour de setNewComment :
+   * 1. Update le state.
+   * 2. Broadcast un event "typing" debouncé (Realtime) → autres users voient
+   *    "X est en train d'écrire..." (debounce 2.5s pour éviter le spam WS).
+   * 3. Détecte une mention en cours (F2) — pattern "@" + 0+ chars non-espace
+   *    en fin de chaîne → affiche le picker autocomplete au-dessus du TextInput.
+   */
   const handleCommentChange = (text: string) => {
     setNewComment(text);
+    // F2 : détection de mention en cours
+    const match = text.match(/@(\w*)$/);
+    setMentionQuery(match ? match[1].toLowerCase() : null);
+    // Broadcast typing (debounced)
     if (!user || !sendTypingRef.current || text.trim().length === 0) return;
     const now = Date.now();
     if (now - lastSentAtRef.current > 2500) {
@@ -158,9 +176,6 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
       lastSentAtRef.current = now;
     }
   };
-  
-  const [newComment, setNewComment] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   // ID du commentaire pour lequel le picker emoji est ouvert (null = fermé)
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<string | null>(null);
   // Position où afficher le picker (style iMessage, ancré au commentaire long-pressed)
@@ -374,15 +389,59 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
     Toast.show({ type: 'success', text1: 'Rappel envoyé', text2: 'Aux personnes assignées.' });
   };
   
+  // F2 : pickable users matchant la mention en cours (user en train de taper).
+  // Limité à 5 résultats pour pas écraser l'écran. Tri par firstName.
+  const allUsers = useUsersStore.getState().users;
+  const mentionCandidates = mentionQuery !== null
+    ? allUsers
+        .filter((u) => u.id !== user?.id) // pas se mentionner soi-même
+        .filter((u) => u.firstName.toLowerCase().startsWith(mentionQuery))
+        .slice(0, 5)
+    : [];
+
+  const insertMention = (mentionedUser: typeof allUsers[number]) => {
+    const replaced = newComment.replace(/@\w*$/, `@${mentionedUser.firstName} `);
+    setNewComment(replaced);
+    setMentionQuery(null);
+  };
+
   const handleSubmitComment = async () => {
     if (!newComment.trim() || !user) return;
 
     setIsSubmitting(true);
+    const finalText = newComment.trim();
 
     try {
       tapHaptic();
-      addComment(task.id, user.id, newComment.trim());
+      addComment(task.id, user.id, finalText);
       setNewComment('');
+      setMentionQuery(null);
+
+      // F2 : notifier les users mentionnés (pattern "@FirstName" lookupé dans
+      // la liste users locale). On évite les doublons via un Set.
+      const mentioned = new Set<string>();
+      const lower = finalText.toLowerCase();
+      for (const u of allUsers) {
+        if (u.id === user.id) continue;
+        if (lower.includes(`@${u.firstName.toLowerCase()}`)) {
+          mentioned.add(u.id);
+        }
+      }
+      if (mentioned.size > 0) {
+        try {
+          const notifStore = (await import('@/store/notifications-store')).useNotificationsStore;
+          notifStore.getState().addNotification({
+            title: '💬 Tu as été mentionné',
+            message: `${user.firstName} t'a mentionné dans un commentaire de "${task.title}".`,
+            targetRoles: [],
+            targetUserIds: Array.from(mentioned),
+            taskId: task.id,
+          });
+        } catch (e) {
+          console.log('[mention notif] error (non-blocking):', e);
+        }
+      }
+
       if (onUpdate) onUpdate();
     } catch (error) {
       console.error('Error adding comment:', error);
@@ -805,6 +864,29 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                       </Text>
                     </View>
                   )}
+                  {/* F2 : autocomplete picker pour mentions @user. Apparaît
+                      uniquement quand l'user est en train de taper "@..." */}
+                  {mentionQuery !== null && mentionCandidates.length > 0 && (
+                    <View style={[styles.mentionPicker, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {mentionCandidates.map((u) => (
+                        <TouchableOpacity
+                          key={u.id}
+                          style={[styles.mentionRow, { borderBottomColor: theme.border }]}
+                          onPress={() => insertMention(u)}
+                          activeOpacity={0.7}
+                        >
+                          <Avatar
+                            source={u.profileImage ? { uri: u.profileImage } : undefined}
+                            name={`${u.firstName} ${u.lastName}`}
+                            size={28}
+                          />
+                          <Text style={[styles.mentionName, { color: theme.text }]} numberOfLines={1}>
+                            {u.firstName} {u.lastName}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                   <View style={styles.addCommentContainer}>
                     <TextInput
                       style={[
@@ -815,7 +897,7 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                           borderColor: theme.border,
                         }
                       ]}
-                      placeholder="Ajouter un commentaire..."
+                      placeholder="Ajouter un commentaire... (tape @ pour mentionner)"
                       placeholderTextColor={darkMode ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.4)'}
                       value={newComment}
                       onChangeText={handleCommentChange}
@@ -1262,5 +1344,27 @@ const styles = StyleSheet.create({
   rejectModalBtnText: {
     fontSize: 15,
     fontWeight: '500',
+  },
+
+  // F2 : autocomplete picker pour mentions @user
+  mentionPicker: {
+    borderWidth: 1,
+    borderRadius: 12,
+    marginBottom: 8,
+    overflow: 'hidden',
+    maxHeight: 240,
+  },
+  mentionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  mentionName: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
   },
 });

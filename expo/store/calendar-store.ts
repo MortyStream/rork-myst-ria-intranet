@@ -157,6 +157,75 @@ export const useCalendarStore = create<CalendarStore>()(
           });
         }
 
+        // F4 : récurrence — si définie sur l'event mère, générer les
+        // instances futures. Elles partagent les mêmes participants/location
+        // mais ont des startTime/endTime décalés.
+        const parentEvent = data as Event;
+        if (parentEvent.recurrence) {
+          const generateOccurrences = (parent: Event): Partial<Event>[] => {
+            const baseStart = new Date(parent.startTime);
+            const baseEnd = parent.endTime ? new Date(parent.endTime) : null;
+            const duration = baseEnd ? baseEnd.getTime() - baseStart.getTime() : 0;
+            // Nombre d'instances (au-delà de l'event mère) selon fréquence
+            const count = parent.recurrence === 'yearly' ? 5 : 12;
+            const occurrences: Partial<Event>[] = [];
+            for (let i = 1; i <= count; i++) {
+              const d = new Date(baseStart);
+              switch (parent.recurrence) {
+                case 'weekly':
+                  d.setDate(d.getDate() + 7 * i);
+                  break;
+                case 'biweekly':
+                  d.setDate(d.getDate() + 14 * i);
+                  break;
+                case 'monthly':
+                  d.setMonth(d.getMonth() + i);
+                  break;
+                case 'yearly':
+                  d.setFullYear(d.getFullYear() + i);
+                  break;
+              }
+              const endIso = duration > 0 ? new Date(d.getTime() + duration).toISOString() : null;
+              occurrences.push({
+                title: parent.title,
+                description: parent.description,
+                startTime: d.toISOString(),
+                endTime: endIso ?? undefined,
+                location: parent.location,
+                locationType: parent.locationType,
+                color: parent.color,
+                isPinned: false,
+                categoryId: parent.categoryId,
+                participants: parent.participants,
+                createdBy: parent.createdBy,
+                recurrence: null,                  // les instances ne sont pas elles-mêmes récurrentes
+                recurrenceParentId: parent.id,
+              });
+            }
+            return occurrences;
+          };
+
+          try {
+            const occurrences = generateOccurrences(parentEvent);
+            const { data: insertedOccurrences } = await supabase
+              .from('events')
+              .insert(occurrences)
+              .select();
+            if (Array.isArray(insertedOccurrences) && insertedOccurrences.length > 0) {
+              set((state) => ({
+                events: [
+                  ...state.events,
+                  ...(insertedOccurrences as Event[]).filter(
+                    (e) => !state.events.some((existing) => existing.id === e.id)
+                  ),
+                ],
+              }));
+            }
+          } catch (recErr) {
+            console.log('[calendar] recurrence generation error (non-blocking):', recErr);
+          }
+        }
+
         return data.id;
       },
 

@@ -27,6 +27,7 @@ import {
   Clock as ClockIcon,
   Send,
   Users as UsersIcon,
+  Repeat,
 } from 'lucide-react-native';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -387,6 +388,18 @@ ${event.location || ''}`;
           <Text style={[styles.eventTitle, { color: theme.text }]}>
             {event.title}
           </Text>
+          {/* F4 : badge récurrent — visible si l'event est une série mère
+              (recurrence !== null) OU une instance générée (recurrenceParentId). */}
+          {(event.recurrence || event.recurrenceParentId) && (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 }}>
+              <Repeat size={13} color={darkMode ? theme.inactive : '#888'} />
+              <Text style={{ fontSize: 12, color: darkMode ? theme.inactive : '#888', fontStyle: 'italic' }}>
+                {event.recurrence
+                  ? 'Événement récurrent — série mère'
+                  : 'Occurrence d\'un événement récurrent'}
+              </Text>
+            </View>
+          )}
         </View>
 
         {/* RSVP tout en haut : si invité en attente → gros boutons visibles immédiatement */}

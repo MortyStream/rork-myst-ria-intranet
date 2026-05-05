@@ -29,6 +29,7 @@ import {
   Users as UsersIcon,
   Repeat,
   Lock,
+  CalendarPlus,
 } from 'lucide-react-native';
 import { useCalendarStore } from '@/store/calendar-store';
 import { useSettingsStore } from '@/store/settings-store';
@@ -43,6 +44,8 @@ import { Card } from '@/components/Card';
 import { ConfirmModal } from '@/components/ConfirmModal';
 import { EventParticipant } from '@/types/calendar';
 import { tapHaptic, warningHaptic, successHaptic } from '@/utils/haptics';
+import { exportEventToIcs } from '@/utils/ics-export';
+import Toast from 'react-native-toast-message';
 
 export default function EventDetailScreen() {
   const router = useRouter();
@@ -246,6 +249,19 @@ ${event.location || ''}`;
     } catch (error) {
       console.error('Error sharing event:', error);
       Alert.alert('Erreur', 'Une erreur est survenue lors du partage de l\'événement.');
+    }
+  };
+
+  const handleAddToCalendar = async () => {
+    if (!event) return;
+    tapHaptic();
+    const result = await exportEventToIcs(event);
+    if (!result.ok && result.reason) {
+      Toast.show({
+        type: 'error',
+        text1: 'Export impossible',
+        text2: result.reason,
+      });
     }
   };
 
@@ -601,6 +617,14 @@ ${event.location || ''}`;
         </Card>
 
         <View style={styles.actionsContainer}>
+          <Button
+            title="Ajouter à mon calendrier"
+            onPress={handleAddToCalendar}
+            variant="outline"
+            style={styles.shareButton}
+            leftIcon={<CalendarPlus size={18} color={theme.primary} />}
+          />
+
           <Button
             title="Partager"
             onPress={handleShareEvent}

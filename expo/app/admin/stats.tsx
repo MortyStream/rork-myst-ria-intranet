@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -13,20 +13,31 @@ import {
   Folder,
   FileText,
   Bell,
-  LogIn,
-  BarChart,
   Calendar,
+  CheckSquare,
+  Clock,
+  AlertTriangle,
+  TrendingUp,
+  Award,
 } from 'lucide-react-native';
 import { useAuthStore } from '@/store/auth-store';
 import { useUsersStore } from '@/store/users-store';
 import { useResourcesStore } from '@/store/resources-store';
 import { useNotificationsStore } from '@/store/notifications-store';
 import { useCalendarStore } from '@/store/calendar-store';
+import { useTasksStore } from '@/store/tasks-store';
 import { useSettingsStore } from '@/store/settings-store';
 import { Colors } from '@/constants/colors';
 import { Header } from '@/components/Header';
 import { Card } from '@/components/Card';
+import { Avatar } from '@/components/Avatar';
 
+/**
+ * Dashboard admin enrichi (#3 roadmap) — stats utiles pour piloter l'asso :
+ * tâches (statut, retards, top contributeurs, taux complétion), events (RSVP rate),
+ * membres (rôles, dormants), Bible (types). Tout en lecture sur les stores
+ * Zustand (pas de query DB supplémentaire).
+ */
 export default function StatsScreen() {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -34,373 +45,310 @@ export default function StatsScreen() {
   const { categories, resourceItems } = useResourcesStore();
   const { notifications } = useNotificationsStore();
   const { events } = useCalendarStore();
+  const { tasks } = useTasksStore();
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
-  
+
   const [refreshing, setRefreshing] = useState(false);
-  
-  // Vérifier si l'utilisateur est admin ou modérateur
+
   const isAdminOrModerator = user?.role === 'admin' || user?.role === 'moderator';
-  
-  useEffect(() => {
+
+  React.useEffect(() => {
     if (!isAdminOrModerator) router.replace('/admin');
   }, [isAdminOrModerator]);
+
   if (!isAdminOrModerator) return null;
-  
+
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
-    // Dans une vraie application, vous récupéreriez des données fraîches ici
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1000);
+    setTimeout(() => setRefreshing(false), 600);
   }, []);
-  
-  // Calculer les statistiques
-  const totalUsers = users.length;
-  const totalCategories = categories.length;
-  const totalItems = resourceItems.length;
-  const totalNotifications = notifications.length;
-  const totalEvents = events.length;
-  
-  // Calculer les statistiques par rôle
-  const adminUsers = users.filter(u => u.role === 'admin').length;
-  const committeeUsers = users.filter(u => u.role === 'committee').length;
-  const otherUsers = users.filter(u => u.role !== 'admin' && u.role !== 'committee').length;
-  
-  // Calculer les statistiques par type d'élément
-  const folderItems = resourceItems.filter(item => item.type === 'folder').length;
-  const fileItems = resourceItems.filter(item => item.type === 'file').length;
-  const linkItems = resourceItems.filter(item => item.type === 'link').length;
-  const textItems = resourceItems.filter(item => item.type === 'text').length;
-  const imageItems = resourceItems.filter(item => item.type === 'image').length;
-  
-  // Calculer les statistiques d'événements
-  const upcomingEvents = events.filter(event => new Date(event.startTime) > new Date()).length;
-  const pastEvents = events.filter(event => new Date(event.startTime) <= new Date()).length;
-  
+
+  // ── TÂCHES ────────────────────────────────────────────────────────────────
+  const taskStats = useMemo(() => {
+    const total = tasks.length;
+    const pending = tasks.filter((t) => t.status === 'pending').length;
+    const inProgress = tasks.filter((t) => t.status === 'in_progress').length;
+    const completed = tasks.filter((t) => t.status === 'completed').length;
+    const validated = tasks.filter((t) => t.status === 'validated').length;
+    const now = Date.now();
+    const overdue = tasks.filter(
+      (t) =>
+        t.deadline &&
+        new Date(t.deadline).getTime() < now &&
+        t.status !== 'completed' &&
+        t.status !== 'validated'
+    ).length;
+    const high = tasks.filter((t) => t.priority === 'high').length;
+    const medium = tasks.filter((t) => t.priority === 'medium').length;
+    const low = tasks.filter((t) => t.priority === 'low').length;
+    const completionRate = total > 0 ? Math.round(((completed + validated) / total) * 100) : 0;
+
+    // Top contributeurs : qui crée le plus + qui termine le plus
+    const createdByMap = new Map<string, number>();
+    const completedByMap = new Map<string, number>();
+    for (const t of tasks) {
+      if (t.assignedBy) createdByMap.set(t.assignedBy, (createdByMap.get(t.assignedBy) ?? 0) + 1);
+      if (t.completedBy) completedByMap.set(t.completedBy, (completedByMap.get(t.completedBy) ?? 0) + 1);
+    }
+    const topCreators = Array.from(createdByMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+    const topCompleters = Array.from(completedByMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3);
+
+    return { total, pending, inProgress, completed, validated, overdue, high, medium, low, completionRate, topCreators, topCompleters };
+  }, [tasks]);
+
+  // ── ÉVÉNEMENTS ────────────────────────────────────────────────────────────
+  const eventStats = useMemo(() => {
+    const now = Date.now();
+    const upcoming = events.filter((e) => new Date(e.startTime).getTime() > now);
+    const past = events.filter((e) => new Date(e.startTime).getTime() <= now);
+    // RSVP rate sur events upcoming : confirmed sur (confirmed+pending+declined).
+    let totalInvites = 0;
+    let totalConfirmed = 0;
+    for (const e of upcoming) {
+      const ps = e.participants ?? [];
+      totalInvites += ps.length;
+      totalConfirmed += ps.filter((p) => p.status === 'confirmed').length;
+    }
+    const rsvpRate = totalInvites > 0 ? Math.round((totalConfirmed / totalInvites) * 100) : 0;
+    const restricted = events.filter((e) => e.restrictedAccess).length;
+    return { total: events.length, upcoming: upcoming.length, past: past.length, rsvpRate, restricted };
+  }, [events]);
+
+  // ── MEMBRES ───────────────────────────────────────────────────────────────
+  const memberStats = useMemo(() => {
+    const total = users.length;
+    const byRole: Record<string, number> = {};
+    for (const u of users) {
+      const r = u.role ?? 'membre';
+      byRole[r] = (byRole[r] ?? 0) + 1;
+    }
+    const neverLogged = users.filter((u) => !u.lastLogin).length;
+    const now = Date.now();
+    const activeRecent = users.filter((u) => {
+      if (!u.lastLogin) return false;
+      return now - new Date(u.lastLogin).getTime() < 30 * 24 * 60 * 60 * 1000;
+    }).length;
+    return { total, byRole, neverLogged, activeRecent };
+  }, [users]);
+
+  // ── ITEMS BIBLE ───────────────────────────────────────────────────────────
+  const itemStats = useMemo(() => {
+    const total = resourceItems.length;
+    const byType: Record<string, number> = {};
+    for (const i of resourceItems) {
+      byType[i.type] = (byType[i.type] ?? 0) + 1;
+    }
+    return { total, byType };
+  }, [resourceItems]);
+
+  const findUser = (id: string) => users.find((u) => u.id === id);
+  const userName = (id: string) => {
+    const u = findUser(id);
+    if (!u) return '—';
+    return `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() || u.email || '—';
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.background }]} edges={['top']}>
       <Header
-        title="Statistiques d'utilisation"
-        showBackButton={true}
+        title="Statistiques"
+        showBackButton
         onBackPress={() => router.back()}
       />
-      
-      <ScrollView 
-        style={styles.scrollView} 
+
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={theme.primary} />}
       >
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Aperçu général
-        </Text>
-        
+        {/* Vue d'ensemble — 4 cards en grille */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Vue d'ensemble</Text>
         <View style={styles.statsGrid}>
-          <Card style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.primary }]}>
-              <Users size={24} color="#ffffff" />
-            </View>
-            <Text style={[styles.statValue, { color: theme.text }]}>{totalUsers}</Text>
-            <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666666' }]}>Utilisateurs</Text>
-          </Card>
-          
-          <Card style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.secondary }]}>
-              <Folder size={24} color="#ffffff" />
-            </View>
-            <Text style={[styles.statValue, { color: theme.text }]}>{totalCategories}</Text>
-            <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666666' }]}>Catégories</Text>
-          </Card>
-          
-          <Card style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.info }]}>
-              <FileText size={24} color="#ffffff" />
-            </View>
-            <Text style={[styles.statValue, { color: theme.text }]}>{totalItems}</Text>
-            <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666666' }]}>Éléments</Text>
-          </Card>
-          
-          <Card style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.warning }]}>
-              <Bell size={24} color="#ffffff" />
-            </View>
-            <Text style={[styles.statValue, { color: theme.text }]}>{totalNotifications}</Text>
-            <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666666' }]}>Notifications</Text>
-          </Card>
-          
-          <Card style={styles.statCard}>
-            <View style={[styles.statIconContainer, { backgroundColor: theme.success }]}>
-              <Calendar size={24} color="#ffffff" />
-            </View>
-            <Text style={[styles.statValue, { color: theme.text }]}>{totalEvents}</Text>
-            <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666666' }]}>Événements</Text>
-          </Card>
+          <StatCard
+            theme={theme}
+            darkMode={darkMode}
+            icon={<CheckSquare size={20} color="#fff" />}
+            iconBg={theme.primary}
+            value={taskStats.total}
+            label="Tâches"
+            subline={`${taskStats.completionRate}% terminées`}
+          />
+          <StatCard
+            theme={theme}
+            darkMode={darkMode}
+            icon={<AlertTriangle size={20} color="#fff" />}
+            iconBg={theme.error}
+            value={taskStats.overdue}
+            label="En retard"
+            subline={taskStats.total > 0 ? `${Math.round((taskStats.overdue / taskStats.total) * 100)}% du total` : '—'}
+          />
+          <StatCard
+            theme={theme}
+            darkMode={darkMode}
+            icon={<Calendar size={20} color="#fff" />}
+            iconBg={theme.success}
+            value={eventStats.upcoming}
+            label="Events à venir"
+            subline={`RSVP ${eventStats.rsvpRate}% confirmés`}
+          />
+          <StatCard
+            theme={theme}
+            darkMode={darkMode}
+            icon={<Users size={20} color="#fff" />}
+            iconBg={theme.info}
+            value={memberStats.total}
+            label="Membres"
+            subline={`${memberStats.activeRecent} actifs sur 30j`}
+          />
         </View>
-        
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Répartition des utilisateurs
-        </Text>
-        
+
+        {/* TÂCHES par statut */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Tâches — par statut</Text>
         <Card style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <BarChart size={20} color={theme.primary} />
-            <Text style={[styles.chartTitle, { color: theme.text }]}>Par rôle</Text>
-          </View>
-          
-          <View style={styles.barChartContainer}>
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Admin</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.primary,
-                      width: totalUsers > 0 ? `${(adminUsers / totalUsers) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
+          <BarRow theme={theme} label="À faire" value={taskStats.pending} total={taskStats.total} color={theme.warning} />
+          <BarRow theme={theme} label="En cours" value={taskStats.inProgress} total={taskStats.total} color={theme.info} />
+          <BarRow theme={theme} label="Terminées" value={taskStats.completed} total={taskStats.total} color={theme.success} />
+          <BarRow theme={theme} label="Validées" value={taskStats.validated} total={taskStats.total} color={theme.primary} />
+          <BarRow theme={theme} label="En retard" value={taskStats.overdue} total={taskStats.total} color={theme.error} />
+        </Card>
+
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Tâches — par priorité</Text>
+        <Card style={styles.chartCard}>
+          <BarRow theme={theme} label="Haute" value={taskStats.high} total={taskStats.total} color={theme.error} />
+          <BarRow theme={theme} label="Moyenne" value={taskStats.medium} total={taskStats.total} color={theme.warning} />
+          <BarRow theme={theme} label="Basse" value={taskStats.low} total={taskStats.total} color={theme.info} />
+        </Card>
+
+        {/* Top contributeurs */}
+        {(taskStats.topCreators.length > 0 || taskStats.topCompleters.length > 0) && (
+          <>
+            <Text style={[styles.sectionTitle, { color: theme.text }]}>Top contributeurs</Text>
+            <Card style={styles.chartCard}>
+              <View style={styles.topRow}>
+                <View style={styles.topBlock}>
+                  <View style={styles.topHeader}>
+                    <TrendingUp size={16} color={theme.primary} />
+                    <Text style={[styles.topTitle, { color: theme.text }]}>Créent le plus</Text>
+                  </View>
+                  {taskStats.topCreators.length === 0 ? (
+                    <Text style={[styles.topEmpty, { color: theme.inactive }]}>—</Text>
+                  ) : (
+                    taskStats.topCreators.map(([uid, count], idx) => {
+                      const u = findUser(uid);
+                      return (
+                        <View key={uid} style={styles.topItem}>
+                          <Text style={[styles.topRank, { color: theme.primary }]}>{idx + 1}</Text>
+                          <Avatar
+                            name={userName(uid)}
+                            source={u?.avatarUrl ? { uri: u.avatarUrl } : undefined}
+                            size={28}
+                          />
+                          <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>
+                            {userName(uid)}
+                          </Text>
+                          <Text style={[styles.topCount, { color: theme.inactive }]}>{count}</Text>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
+                <View style={styles.topBlock}>
+                  <View style={styles.topHeader}>
+                    <Award size={16} color={theme.success} />
+                    <Text style={[styles.topTitle, { color: theme.text }]}>Terminent le plus</Text>
+                  </View>
+                  {taskStats.topCompleters.length === 0 ? (
+                    <Text style={[styles.topEmpty, { color: theme.inactive }]}>—</Text>
+                  ) : (
+                    taskStats.topCompleters.map(([uid, count], idx) => {
+                      const u = findUser(uid);
+                      return (
+                        <View key={uid} style={styles.topItem}>
+                          <Text style={[styles.topRank, { color: theme.success }]}>{idx + 1}</Text>
+                          <Avatar
+                            name={userName(uid)}
+                            source={u?.avatarUrl ? { uri: u.avatarUrl } : undefined}
+                            size={28}
+                          />
+                          <Text style={[styles.topName, { color: theme.text }]} numberOfLines={1}>
+                            {userName(uid)}
+                          </Text>
+                          <Text style={[styles.topCount, { color: theme.inactive }]}>{count}</Text>
+                        </View>
+                      );
+                    })
+                  )}
+                </View>
               </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{adminUsers}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Comité</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.secondary,
-                      width: totalUsers > 0 ? `${(committeeUsers / totalUsers) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{committeeUsers}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Autres</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.info,
-                      width: totalUsers > 0 ? `${(otherUsers / totalUsers) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{otherUsers}</Text>
-            </View>
+            </Card>
+          </>
+        )}
+
+        {/* ÉVÉNEMENTS */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Événements</Text>
+        <Card style={styles.chartCard}>
+          <BarRow theme={theme} label="À venir" value={eventStats.upcoming} total={eventStats.total} color={theme.success} />
+          <BarRow theme={theme} label="Passés" value={eventStats.past} total={eventStats.total} color={theme.inactive} />
+          <BarRow theme={theme} label="Privés" value={eventStats.restricted} total={eventStats.total} color={theme.primary} />
+          <View style={styles.metricRow}>
+            <Text style={[styles.metricLabel, { color: darkMode ? theme.inactive : '#666' }]}>Taux RSVP confirmés (à venir)</Text>
+            <Text style={[styles.metricValue, { color: theme.primary }]}>{eventStats.rsvpRate}%</Text>
           </View>
         </Card>
-        
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Répartition des éléments
-        </Text>
-        
+
+        {/* MEMBRES */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Membres — par rôle</Text>
         <Card style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <BarChart size={20} color={theme.primary} />
-            <Text style={[styles.chartTitle, { color: theme.text }]}>Par type</Text>
-          </View>
-          
-          <View style={styles.barChartContainer}>
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Dossiers</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.primary,
-                      width: totalItems > 0 ? `${(folderItems / totalItems) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{folderItems}</Text>
+          {Object.entries(memberStats.byRole)
+            .sort((a, b) => b[1] - a[1])
+            .map(([role, count]) => (
+              <BarRow
+                key={role}
+                theme={theme}
+                label={roleLabel(role)}
+                value={count}
+                total={memberStats.total}
+                color={roleColor(role, theme)}
+              />
+            ))}
+          <View style={[styles.metricRow, { marginTop: 8 }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <Clock size={14} color={theme.inactive} />
+              <Text style={[styles.metricLabel, { color: darkMode ? theme.inactive : '#666' }]}>Jamais connectés</Text>
             </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Fichiers</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.error,
-                      width: totalItems > 0 ? `${(fileItems / totalItems) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{fileItems}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Liens</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.info,
-                      width: totalItems > 0 ? `${(linkItems / totalItems) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{linkItems}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Textes</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.warning,
-                      width: totalItems > 0 ? `${(textItems / totalItems) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{textItems}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Images</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.success,
-                      width: totalItems > 0 ? `${(imageItems / totalItems) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{imageItems}</Text>
-            </View>
+            <Text style={[styles.metricValue, { color: memberStats.neverLogged > 0 ? theme.warning : theme.text }]}>
+              {memberStats.neverLogged}
+            </Text>
           </View>
         </Card>
-        
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Événements
-        </Text>
-        
+
+        {/* BIBLE */}
+        <Text style={[styles.sectionTitle, { color: theme.text }]}>Bible — par type</Text>
         <Card style={styles.chartCard}>
-          <View style={styles.chartHeader}>
-            <Calendar size={20} color={theme.primary} />
-            <Text style={[styles.chartTitle, { color: theme.text }]}>Répartition des événements</Text>
+          {Object.entries(itemStats.byType)
+            .sort((a, b) => b[1] - a[1])
+            .map(([type, count]) => (
+              <BarRow
+                key={type}
+                theme={theme}
+                label={typeLabel(type)}
+                value={count}
+                total={itemStats.total}
+                color={theme.primary}
+              />
+            ))}
+          <View style={styles.metricRow}>
+            <Text style={[styles.metricLabel, { color: darkMode ? theme.inactive : '#666' }]}>Catégories Bible</Text>
+            <Text style={[styles.metricValue, { color: theme.text }]}>{categories.length}</Text>
           </View>
-          
-          <View style={styles.barChartContainer}>
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>À venir</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.success,
-                      width: totalEvents > 0 ? `${(upcomingEvents / totalEvents) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{upcomingEvents}</Text>
-            </View>
-            
-            <View style={styles.barChartItem}>
-              <Text style={[styles.barChartLabel, { color: theme.text }]}>Passés</Text>
-              <View style={styles.barContainer}>
-                <View 
-                  style={[
-                    styles.bar, 
-                    { 
-                      backgroundColor: theme.secondary,
-                      width: totalEvents > 0 ? `${(pastEvents / totalEvents) * 100}%` : '0%' 
-                    }
-                  ]} 
-                />
-              </View>
-              <Text style={[styles.barChartValue, { color: theme.text }]}>{pastEvents}</Text>
-            </View>
-          </View>
-        </Card>
-        
-        <Text style={[styles.sectionTitle, { color: theme.text }]}>
-          Activité récente
-        </Text>
-        
-        <Card style={styles.activityCard}>
-          <View style={styles.activityItem}>
-            <View style={[styles.activityIcon, { backgroundColor: theme.primary }]}>
-              <LogIn size={16} color="#ffffff" />
-            </View>
-            <View style={styles.activityInfo}>
-              <Text style={[styles.activityTitle, { color: theme.text }]}>
-                Dernières connexions
-              </Text>
-              <Text style={[styles.activityValue, { color: darkMode ? theme.inactive : '#666666' }]}>
-                Données non disponibles
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.activityItem}>
-            <View style={[styles.activityIcon, { backgroundColor: theme.info }]}>
-              <FileText size={16} color="#ffffff" />
-            </View>
-            <View style={styles.activityInfo}>
-              <Text style={[styles.activityTitle, { color: theme.text }]}>
-                Derniers éléments ajoutés
-              </Text>
-              <Text style={[styles.activityValue, { color: darkMode ? theme.inactive : '#666666' }]}>
-                {resourceItems.length > 0 ? resourceItems[resourceItems.length - 1].title : 'Aucun élément'}
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.activityItem}>
-            <View style={[styles.activityIcon, { backgroundColor: theme.warning }]}>
-              <Bell size={16} color="#ffffff" />
-            </View>
-            <View style={styles.activityInfo}>
-              <Text style={[styles.activityTitle, { color: theme.text }]}>
-                Dernières notifications
-              </Text>
-              <Text style={[styles.activityValue, { color: darkMode ? theme.inactive : '#666666' }]}>
-                {notifications.length > 0 ? notifications[0].title : 'Aucune notification'}
-              </Text>
-            </View>
-          </View>
-          
-          <View style={styles.activityItem}>
-            <View style={[styles.activityIcon, { backgroundColor: theme.success }]}>
-              <Calendar size={16} color="#ffffff" />
-            </View>
-            <View style={styles.activityInfo}>
-              <Text style={[styles.activityTitle, { color: theme.text }]}>
-                Prochain événement
-              </Text>
-              <Text style={[styles.activityValue, { color: darkMode ? theme.inactive : '#666666' }]}>
-                {upcomingEvents > 0 
-                  ? events
-                      .filter(e => new Date(e.startTime) > new Date())
-                      .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())[0]?.title
-                  : 'Aucun événement à venir'}
-              </Text>
-            </View>
+          <View style={styles.metricRow}>
+            <Text style={[styles.metricLabel, { color: darkMode ? theme.inactive : '#666' }]}>Notifications totales</Text>
+            <Text style={[styles.metricValue, { color: theme.text }]}>{notifications.length}</Text>
           </View>
         </Card>
       </ScrollView>
@@ -408,21 +356,91 @@ export default function StatsScreen() {
   );
 }
 
+// ─── Sous-composants présentationnels ───────────────────────────────────────
+
+interface StatCardProps {
+  theme: typeof Colors.dark;
+  darkMode: boolean;
+  icon: React.ReactNode;
+  iconBg: string;
+  value: number;
+  label: string;
+  subline: string;
+}
+const StatCard: React.FC<StatCardProps> = ({ theme, darkMode, icon, iconBg, value, label, subline }) => (
+  <Card style={styles.statCard}>
+    <View style={[styles.statIconContainer, { backgroundColor: iconBg }]}>{icon}</View>
+    <Text style={[styles.statValue, { color: theme.text }]}>{value}</Text>
+    <Text style={[styles.statLabel, { color: darkMode ? theme.inactive : '#666' }]}>{label}</Text>
+    <Text style={[styles.statSubline, { color: theme.inactive }]} numberOfLines={1}>
+      {subline}
+    </Text>
+  </Card>
+);
+
+interface BarRowProps {
+  theme: typeof Colors.dark;
+  label: string;
+  value: number;
+  total: number;
+  color: string;
+}
+const BarRow: React.FC<BarRowProps> = ({ theme, label, value, total, color }) => {
+  const pct = total > 0 ? (value / total) * 100 : 0;
+  return (
+    <View style={styles.barRow}>
+      <Text style={[styles.barLabel, { color: theme.text }]} numberOfLines={1}>{label}</Text>
+      <View style={[styles.barTrack, { backgroundColor: 'rgba(127,127,127,0.18)' }]}>
+        <View style={[styles.barFill, { backgroundColor: color, width: `${pct}%` }]} />
+      </View>
+      <Text style={[styles.barValue, { color: theme.text }]}>{value}</Text>
+    </View>
+  );
+};
+
+const roleLabel = (r: string): string => {
+  switch (r) {
+    case 'admin': return 'Admin';
+    case 'responsable_pole': return 'Resp. pôle';
+    case 'responsable_secteur': return 'Resp. secteur';
+    case 'membre': return 'Membre';
+    case 'user': return 'User';
+    case 'moderator': return 'Modérateur';
+    case 'committee': return 'Comité';
+    default: return r.charAt(0).toUpperCase() + r.slice(1);
+  }
+};
+
+const roleColor = (r: string, theme: typeof Colors.dark): string => {
+  switch (r) {
+    case 'admin': return theme.error;
+    case 'responsable_pole': return theme.primary;
+    case 'responsable_secteur': return theme.warning;
+    case 'membre':
+    case 'user': return theme.info;
+    default: return theme.inactive;
+  }
+};
+
+const typeLabel = (t: string): string => {
+  switch (t) {
+    case 'folder': return 'Dossiers';
+    case 'file': return 'Fichiers';
+    case 'link': return 'Liens';
+    case 'text': return 'Textes';
+    case 'image': return 'Images';
+    default: return t;
+  }
+};
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 40,
-  },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 16,
+    fontSize: 17,
+    fontWeight: '700',
+    marginBottom: 12,
     marginTop: 8,
   },
   statsGrid: {
@@ -435,94 +453,75 @@ const styles = StyleSheet.create({
     width: '48%',
     alignItems: 'center',
     paddingVertical: 16,
-    marginBottom: 16,
+    paddingHorizontal: 8,
+    marginBottom: 12,
   },
   statIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: 10,
   },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
-  },
+  statValue: { fontSize: 22, fontWeight: 'bold', marginBottom: 2 },
+  statLabel: { fontSize: 13, fontWeight: '500' },
+  statSubline: { fontSize: 11, marginTop: 2 },
   chartCard: {
-    marginBottom: 24,
-    padding: 16,
+    marginBottom: 20,
+    padding: 14,
   },
-  chartHeader: {
+  barRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 16,
+    marginVertical: 6,
   },
-  chartTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginLeft: 8,
+  barLabel: {
+    width: 100,
+    fontSize: 13,
   },
-  barChartContainer: {
-    marginBottom: 8,
-  },
-  barChartItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  barChartLabel: {
-    width: 80,
-    fontSize: 14,
-  },
-  barContainer: {
+  barTrack: {
     flex: 1,
-    height: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 8,
+    height: 12,
+    borderRadius: 6,
     overflow: 'hidden',
     marginHorizontal: 8,
   },
-  bar: {
-    height: '100%',
-    borderRadius: 8,
-  },
-  barChartValue: {
-    width: 30,
-    fontSize: 14,
-    textAlign: 'right',
-  },
-  activityCard: {
-    marginBottom: 24,
-  },
-  activityItem: {
+  barFill: { height: '100%', borderRadius: 6 },
+  barValue: { width: 32, fontSize: 13, fontWeight: '600', textAlign: 'right' },
+  metricRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    paddingVertical: 8,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(127,127,127,0.2)',
+    marginTop: 6,
   },
-  activityIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
+  metricLabel: { fontSize: 13 },
+  metricValue: { fontSize: 15, fontWeight: '700' },
+  topRow: {
+    flexDirection: 'row',
+    gap: 12,
   },
-  activityInfo: {
+  topBlock: {
     flex: 1,
   },
-  activityTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 2,
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 8,
   },
-  activityValue: {
-    fontSize: 12,
+  topTitle: { fontSize: 13, fontWeight: '700' },
+  topEmpty: { fontSize: 12, fontStyle: 'italic' },
+  topItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 6,
   },
+  topRank: { fontSize: 14, fontWeight: '700', width: 16 },
+  topName: { flex: 1, fontSize: 13, fontWeight: '500' },
+  topCount: { fontSize: 13, fontWeight: '700' },
 });

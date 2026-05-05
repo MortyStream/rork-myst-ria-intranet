@@ -37,6 +37,9 @@ interface ButtonProps {
   // créations en double (POST). Désactiver pour les actions intentionnellement
   // répétables (counter, reorder, picker incrémental).
   allowRapidPress?: boolean;
+  // Label d'accessibilité pour VoiceOver/TalkBack. Si absent, fallback sur le
+  // title. Indispensable pour les boutons icône-only (App Store Review).
+  accessibilityLabel?: string;
 }
 
 export const Button: React.FC<ButtonProps> = ({
@@ -53,6 +56,7 @@ export const Button: React.FC<ButtonProps> = ({
   small = false,
   haptic,
   allowRapidPress = false,
+  accessibilityLabel,
 }) => {
   const { darkMode } = useSettingsStore();
   const theme = darkMode ? Colors.dark : Colors.light;
@@ -199,6 +203,9 @@ export const Button: React.FC<ButtonProps> = ({
       onPressOut={handlePressOut}
       disabled={disabled || loading}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel ?? title}
+      accessibilityState={{ disabled: disabled || loading, busy: loading }}
     >
       {content}
     </AnimatedTouchableOpacity>

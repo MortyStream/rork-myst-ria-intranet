@@ -162,6 +162,11 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   // ID du commentaire pour lequel le picker emoji est ouvert (null = fermé)
   const [reactionPickerCommentId, setReactionPickerCommentId] = useState<string | null>(null);
+  // Position où afficher le picker (style iMessage, ancré au commentaire long-pressed)
+  // top = position verticale du picker, calculée à partir de la position du commentaire.
+  const [reactionPickerTop, setReactionPickerTop] = useState<number>(0);
+  // Map des refs des comment items pour mesurer leur position au long-press.
+  const commentItemRefs = useRef<Map<string, View | null>>(new Map());
   // ID du commentaire sur lequel un delete est en cours de confirmation (null = fermé)
   const [commentToDelete, setCommentToDelete] = useState<TaskComment | null>(null);
   // 4 emojis de base autorisés pour les réactions
@@ -667,10 +672,28 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
                     return (
                       <TouchableOpacity
                         key={comment.id}
+                        ref={(node) => {
+                          if (node) commentItemRefs.current.set(comment.id, node as unknown as View);
+                          else commentItemRefs.current.delete(comment.id);
+                        }}
                         style={[styles.commentItem, { backgroundColor: theme.card }]}
-                        onLongPress={async () => {
+                        onLongPress={() => {
                           mediumHaptic();
-                          setReactionPickerCommentId(comment.id);
+                          // Mesure de la position du commentaire pour ancrer le picker
+                          // juste au-dessus (style iMessage). Si la mesure échoue, on
+                          // fallback sur top fixe (haut d'écran).
+                          const node = commentItemRefs.current.get(comment.id);
+                          if (node && (node as any).measureInWindow) {
+                            (node as any).measureInWindow((_x: number, y: number) => {
+                              const PICKER_HEIGHT = 56;
+                              const GAP = 8;
+                              setReactionPickerTop(Math.max(40, y - PICKER_HEIGHT - GAP));
+                              setReactionPickerCommentId(comment.id);
+                            });
+                          } else {
+                            setReactionPickerTop(120);
+                            setReactionPickerCommentId(comment.id);
+                          }
                         }}
                         delayLongPress={400}
                         activeOpacity={0.85}
@@ -806,8 +829,9 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
       </KeyboardAvoidingView>
     </Modal>
 
-    {/* Reaction picker (popup centrée) — déclenché par long-press sur un commentaire.
-        Sibling Modal au-dessus du Modal principal pour ne pas perturber le keyboard. */}
+    {/* Reaction picker — ancré juste au-dessus du commentaire long-pressed
+        (style iMessage). Position calculée via measureInWindow au long-press,
+        stockée dans reactionPickerTop. Le backdrop tappable ferme. */}
     <Modal
       visible={reactionPickerCommentId !== null}
       transparent
@@ -819,7 +843,12 @@ export const TaskDetail: React.FC<TaskDetailProps> = ({
         activeOpacity={1}
         onPress={() => setReactionPickerCommentId(null)}
       >
-        <View style={[styles.reactionPickerCard, { backgroundColor: theme.card }]}>
+        <View
+          style={[
+            styles.reactionPickerCard,
+            { backgroundColor: theme.card, top: reactionPickerTop },
+          ]}
+        >
           {REACTION_EMOJIS.map((emoji) => (
             <TouchableOpacity
               key={emoji}
@@ -1084,17 +1113,17 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     minWidth: 8,
   },
-  // Picker emoji popup (long-press sur un commentaire)
+  // Picker emoji ancré au-dessus du commentaire long-pressed (style iMessage).
   reactionPickerBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   reactionPickerCard: {
     flexDirection: 'row',
-    paddingHorizontal: 12,
-    paddingVertical: 14,
+    position: 'absolute',
+    alignSelf: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 8,
     borderRadius: 999,
     gap: 4,
     shadowColor: '#000',

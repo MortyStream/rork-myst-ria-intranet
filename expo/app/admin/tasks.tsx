@@ -84,6 +84,7 @@ export default function AdminTasksScreen() {
             icon={<Plus size={22} color={theme.text} />}
             onPress={() => setShowTaskForm(true)}
             variant="text"
+            accessibilityLabel="Créer une tâche (admin)"
           />
         }
       />

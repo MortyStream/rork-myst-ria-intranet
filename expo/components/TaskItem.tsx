@@ -167,11 +167,7 @@ const TaskItemComponent: React.FC<TaskItemProps> = ({ task, onPress, onToggleDon
     <TouchableOpacity
       style={[
         styles.container,
-        {
-          backgroundColor: theme.card,
-          borderLeftColor: getPriorityColor(),
-          borderLeftWidth: 4,
-        }
+        { backgroundColor: theme.card },
       ]}
       onPress={onPress}
       onLongPress={onLongPress}
@@ -200,6 +196,13 @@ const TaskItemComponent: React.FC<TaskItemProps> = ({ task, onPress, onToggleDon
             )}
           </TouchableOpacity>
         )}
+        {/* Priority dot circulaire (style Things 3) — remplace le border-left
+            fixe 4px qui faisait répétitif sur toute la liste. Plus discret,
+            plus moderne. La couleur reste celle de getPriorityColor(). */}
+        <View
+          style={[styles.priorityDot, { backgroundColor: getPriorityColor() }]}
+          accessibilityLabel={`Priorité ${getPriorityText().toLowerCase()}`}
+        />
         <Text
           style={[
             styles.title,
@@ -312,6 +315,12 @@ const styles = StyleSheet.create({
   checkboxTouchable: {
     marginRight: 10,
     justifyContent: 'center',
+  },
+  priorityDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
   },
   statusBadge: {
     flexDirection: 'row',

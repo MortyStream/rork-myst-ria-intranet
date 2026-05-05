@@ -8,6 +8,9 @@ import {
   Alert,
   TouchableOpacity,
   Modal,
+  LayoutAnimation,
+  Platform,
+  UIManager,
 } from 'react-native';
 import { Plus, Search, User, Edit3, Folder, Flag, AlertCircle, X, Check, Clock, CheckCircle2, SlidersHorizontal, Users as UsersIcon } from 'lucide-react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -30,6 +33,16 @@ import { Task } from '@/types/task';
 import { AppLayout } from '@/components/AppLayout';
 import { Header } from '@/components/Header';
 import { tapHaptic, mediumHaptic, warningHaptic } from '@/utils/haptics';
+
+// LayoutAnimation : sur Android il faut activer le flag experimental pour
+// que ça marche. Idempotent. iOS l'a par défaut.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
+const animateNext = () => {
+  LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+};
 
 export default function TasksScreen() {
   const router = useRouter();
@@ -336,6 +349,7 @@ export default function TasksScreen() {
                   onPress={handleAddTask}
                   variant="text"
                   style={styles.addButton}
+                  accessibilityLabel="Créer une tâche"
                 />
               )}
             </View>
@@ -362,7 +376,10 @@ export default function TasksScreen() {
               label={`À faire (${pendingTasks.length})`}
               icon={<Clock size={14} color={filter === 'pending' ? '#fff' : theme.text} />}
               active={filter === 'pending'}
-              onPress={() => setFilter(filter === 'pending' ? 'all' : 'pending')}
+              onPress={() => {
+                animateNext();
+                setFilter(filter === 'pending' ? 'all' : 'pending');
+              }}
               theme={theme}
               primary={appColors.primary}
             />
@@ -370,7 +387,10 @@ export default function TasksScreen() {
               label={`Tâches données${chipCreated ? '' : ''}`}
               icon={<Edit3 size={14} color={chipCreated ? '#fff' : theme.text} />}
               active={chipCreated}
-              onPress={() => setChipCreated((v) => !v)}
+              onPress={() => {
+                animateNext();
+                setChipCreated((v) => !v);
+              }}
               theme={theme}
               primary={appColors.primary}
             />

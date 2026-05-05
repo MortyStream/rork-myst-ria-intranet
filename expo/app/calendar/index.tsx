@@ -208,6 +208,7 @@ export default function CalendarScreen() {
                 onPress={handleAddEvent}
                 variant="text"
                 style={styles.addButton}
+                accessibilityLabel="Créer un événement"
               />
             )
           }

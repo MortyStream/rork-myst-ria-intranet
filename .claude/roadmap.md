@@ -2,48 +2,120 @@
 
 > État du projet, prochaines étapes, ressources externes. À lire pour planifier une nouvelle feature, comprendre où on en est, ou trouver un contact.
 
+**Dernière update** : 2026-05-05 (session intensive Vagues A/B/C + features court terme + UX audit)
+
 ---
 
-## État courant (post-V3b, 2026-05-03)
+## 🎯 Prochains chantiers prioritaires
 
-### ✅ Livré et testé sur device
+Liste des vraies choses à faire, dans un ordre raisonné. À attaquer tête reposée, en sessions ciblées.
 
-**Sécurité** — Mode Preview supprimé, RLS Phase 1+2 strict, password change Supabase auth réel, leaked password sécurité activée (Free tier limité), JWT propagation fix, **collision storageKey GoTrueClient/Zustand persist résolue** (fix critique auto-login), **credentials en clair AsyncStorage retirés** (SEC-003 audit).
+### 1. Tests testeurs WhatsApp + feedback (avant tout)
 
-**UX cosmétique** — Chevron menu sidebar, version dynamique, émojis harmonisés, welcome card masquée par défaut, calendrier lundi-dimanche, bouton retour sur sous-pages, ParticipantsStack avec bottom sheet, **Toast custom dark/light** (toastConfig), **Skeleton shimmer wave gradient**, **Calendar cellules minHeight 44 + indicateur "+N" events**.
+Une dizaine de features et refactors UI/UX ont été livrés sans test device complet — Kévin a juste testé les flows critiques. Avant d'enchaîner sur du nouveau, il faut :
 
-**Flows core** — RSVP visible en haut event-detail + badge "À répondre" home, **notifications cliquables avec deep-link réel** (event/task/category, plus le bug `taskId` colonne manquante), checkbox inline tâches, recherche universelle La Bible, onboarding 3 écrans first launch.
+- Distribuer un message d'update aux testeurs (ping admins/RS/RP/membres pour couvrir les rôles)
+- Récupérer leurs retours
+- Fixer les régressions éventuelles
 
-**Notifications (refonte complète v1.4)** :
-- Tap → deep-link + auto-mark-read (1 seul chemin, plus de double routing)
-- Long-press menu pour TOUS users (avant : admin only)
-- ConfirmModal au lieu d'Alert.alert
-- SectionList groupé par jour (Aujourd'hui / Hier / Cette semaine / Plus ancien)
-- Empty state riche, skeleton 1er chargement
-- Distinction lue/non-lue marquée (border-left coloré + bold)
-- Notifs obsolètes grisées avec badge "Tâche terminée" / "Événement passé"
-- **Toast in-app style WhatsApp** : slide-down du haut quand notif Realtime arrive, swipe-up dismiss, auto 4.5s, tap → deep-link
-- **Bug critique UUID id résolu** : avant, `addNotification` générait des ids string non-UUID → INSERT échouait silencieusement → 0 notif en DB depuis toujours. Maintenant `uuid v4` + `crypto.randomUUID()` côté Edge.
-- Edge function `scheduled-reminders` v3 déployée (titres courts ≤ 22 chars)
+**Tests prioritaires à faire couvrir** (à dispatcher dans le groupe WhatsApp) :
+- **Pôles & Secteurs** : login admin → /admin/sectors → créer secteurs, affecter membres, désigner RS/RP. Côté membre : vérifier que pas d'accès à /admin/sectors.
+- **Vue d'équipe (👥)** : login RP/RS → bouton 👥 dans onglet tâches → /team-tasks groupé par membre.
+- **Workflow validation cross-secteur** : membre A (secteur X) crée tâche pour membre B (secteur Y) → tâche devient `pending_approval`, RS du secteur Y voit "À valider", peut Approuver/Rejeter avec raison.
+- **Pièces jointes tâches** : photo/fichier/lien sur une tâche, ouverture, suppression.
+- **Mentions @user** : autocomplete inline dans commentaires, notif aux mentionnés.
+- **Drafts forms** : commencer une tâche/event, fermer l'app, rouvrir → toast "Brouillon restauré".
+- **Récurrence events** : créer event "Hebdomadaire" → 12 occurrences générées automatiquement.
+- **Mode ne pas déranger** : Settings → toggle + plage horaire (ne bloque PAS encore les push côté serveur, cf. limite F5).
 
-**Auto-login** — Plus besoin de se reco à chaque ouverture (cold start). Tolérance erreurs transitoires. Plus de bouton "Connexion rapide" / toggle "Mémoriser identifiants" dans login.tsx (auto-login Supabase suffit).
+### 2. Edge function : consommer `user_in_quiet_hours()` côté serveur
 
-**Realtime (v1.3)** — `@supabase/realtime-js` intégré dans le custom client. Migration `enable_realtime_on_tasks` + `notifications_task_id_and_realtime`. Sync globale tasks INSERT/UPDATE/DELETE entre devices. Commentaires temps réel. Indicateur "X est en train d'écrire..." (broadcast). Réactions emoji 👍❤️🙏😂. **RPC `toggle_comment_reaction`** atomique (SELECT FOR UPDATE) pour éliminer race condition reactions simultanées.
+Le mode F5 (Ne pas déranger) est livré côté DB + UI Settings. Mais les push ne sont PAS encore filtrés côté serveur. À faire :
+- Dans `supabase/functions/scheduled-reminders/index.ts` : avant chaque insert dans `notifications` ou send push via `sendPushNotifications`, appeler `supabase.rpc('user_in_quiet_hours', { p_user_id: targetId })`. Si true → skip ce destinataire.
+- Dans `expo/utils/push-notifications.ts` `sendPushNotifications` : idem, query par batch via `.in('id', userIds)` + filter.
+- Tester que les notifs créées en DB peuvent garder le record (history) mais que le push (Expo Push API) ne fire pas.
 
-**Sync différée offline (v1.3)** — `pending-queue-store` + `queue-worker.ts`. Toggle tâche / addComment / réaction (via RPC) / RSVP enqueués si offline (optimistic préservé). Drain auto au retour online + au démarrage app.
+### 3. Compte démo + App Review Notes (App Store / Play Store)
 
-**Search + filtres tâches (v1.3 / #7-#8)** — Search bar tâches (titre/description/catégorie/assignés). 5 chips combinables : Mes / Que j'ai créées / Catégorie / Priorité haute / En retard.
+Bundle IDs prêts : `ch.mysteriaevent.intranet` (iOS + Android), EAS project `b2bdb0b9-18cf-40a6-be2c-c7dc1de3333c`. Manquant :
+- **Compte démo** : créer un user `demo@mysteriaevent.ch` rôle `membre`, peuplé avec quelques tâches/events/categories Bible pour que les reviewers Apple voient un état réaliste.
+- **App Review Notes** : screenshots, description française/anglaise, mention que l'app est privée (membres invités uniquement, pas d'inscription publique → important pour passer le review 4.2 Minimum Functionality).
+- **EAS Build production** : `eas build --profile production --platform all` puis submit. Activera aussi push remote vraies (Expo Go ne supporte pas), Quick Actions long-press icône, Widgets iOS/Android.
 
-**Qualité images** — Compression avatars/screenshots/Bible, sanitize filenames, vrai aperçu image dans form.
+### 4. Limite RLS pending_approval (sécurité Vague C)
 
-**Performance** — `React.memo` sur `TaskItem`, `NotificationItem`, `UserListItem`. `getEventsByDate` memoïsé. Signature stable pour `syncLocalReminders` deps (plus de cascade re-fire). Intercepteur 401 → refresh → retry sur custom Postgrest client (mutex partagé).
+Vague C (livrée 2026-05-05) filtre les tâches `pending_approval` côté client uniquement. Un user technique qui appelle l'API directement verrait les titres des tâches en attente. Pour serrer :
+- Modifier la policy SELECT sur `public.tasks` : exclure `approvalStatus = 'pending_approval'` SAUF si `assignedBy = current_user_internal_id()` OR validateur potentiel via `tasks_pending_my_approval`.
+- À tester device après pour que la liste classique reste cohérente (le filtre client deviendra redondant — on peut le retirer).
 
-**Audit Salvatore (mai 2026)** — 29/50 items traités (62%), 2 skip volontaires (web-only), 19 restants. Détail complet item par item avec ✅/⏭/❌ : `.claude/archive/audit-salvatore-mai-2026.md`. Les gros morceaux restants (auth-store refactor, expo-secure-store, @gorhom/bottom-sheet, tests Jest baseline) sont aussi listés dans la table "Long terme" plus bas.
+### 5. Refactors L effort (sessions dédiées tests device)
 
-### 🟡 Bugs résiduels connus
+Reportés depuis l'audit Salvatore. Tous demandent un cycle de tests complet device parce qu'ils touchent zones critiques.
 
-1. **Pas de tests automatisés** : aucun test unit/integration en place (cible V3c — Jest baseline sur stores critiques)
-2. **`supabase-users-store.ts` doublon** avec `users-store.ts` — toujours là, consommé uniquement par `admin/database.tsx` (panel legacy). Refactor demande de toucher aussi à database.tsx, à faire en session dédiée.
+| Item | Pourquoi attendre une session dédiée |
+|---|---|
+| **Refactor `auth-store.ts`** (1061 → ~600 lignes) | Hard Lessons §5.1 / §5.2 / §5.3 / §5.4 — toucher à l'auth a déjà cassé la prod 4×. Lookup user dupliqué 3× à factoriser. |
+| **`expo-secure-store`** pour auth-state + tokens | Sécurité tangible (tokens chiffrés Keychain iOS / Keystore Android). Mais limite Keychain ~2KB/clé à valider sur la taille réelle de la session Supabase avant migration. |
+| **Dédoublonner `users-store` vs `supabase-users-store`** | `admin/database.tsx` consomme `supabase-users-store` (legacy) avec mock data flag + 5 méthodes (`createUser`, `updateUser`, `deleteUser`, `fetchUsers`, `getUserById`) absentes de `users-store`. Migration demande soit d'enrichir users-store, soit de refactor admin/database.tsx. |
+| **`@gorhom/bottom-sheet`** | Refactor UI sur 3 composants (TaskDetail Modal, reaction picker emoji, ParticipantsStack). TaskDetail est central, tests visuels iOS+Android requis. |
+| **Tests Jest baseline** | Setup environment Jest + mocks Zustand/Supabase/AsyncStorage + écriture tests sur stores critiques (auth, tasks). |
+
+### 6. Idées features futures (à valider avec l'asso)
+
+- **Catégorie privée pour events** (visible seulement par membres listés) — partiellement implémentable via `restrictedAccess` mais pas exposé pour events.
+- **Calendar export .ics** (importer events Mystéria dans Apple Calendar / Google Calendar natifs).
+- **Recherche globale cross-modules** (tâches + events + Bible + users dans une seule barre style Slack `Cmd+K`).
+- **Indicateur "vu"/"reçu"** sur les notifs (style WhatsApp).
+- **Onboarding contextuel** (tooltips premier usage — long-press = supprimer est caché actuellement).
+- **Quick filters sauvegardés** sur Tâches (les chips combinables doivent être ré-appliqués à chaque session).
+- **Pull-to-refresh** sur Bible et Notifications mode catégories (manque).
+- **Dashboard stats admin** plus poussé.
+
+---
+
+## ✅ État livré au 2026-05-05
+
+### Sessions du 2026-05-04 / 05 (intensives)
+
+**Vague A — Refonte UI filtres tâches** (commit `dd75232`)
+2 chips simples en tête (À faire / Tâches données) + bouton funnel ⚙ vers bottom-sheet "Filtres avancés" (catégorie, priorité, retard). Plus de scroll horizontal de 7 chips. Titre dynamique entre les chips et la liste. Wrap label "Se déconnecter" fixé dans ConfirmModal.
+
+**Vague B — Pôles → Secteurs → Membres + Vue d'équipe** (commits `69ba614` / `4ed8f75` / `6f6bdd8`)
+Modélisation hiérarchique de l'asso. Tables `sectors` + `sector_members`, colonne `user_groups.responsibleId`. Helpers SQL `private.is_pole_responsible`, `is_sector_responsible`, `user_team_user_ids`, RPC `get_my_team_user_ids`. Panel admin `/admin/sectors` pour CRUD secteurs + affectation membres + désignation RS/RP. Bouton 👥 dans Header onglet tâches (admin/RP/RS) → écran `/team-tasks` groupé par membre, tri par "tâches en retard" décroissant.
+
+**Vague C — Workflow validation cross-secteur** (commit `4c014dc`)
+Quand un membre A donne une tâche à un membre B d'un autre secteur, validation requise par le RS du secteur de B. Skip si admin / RP du pôle / partage de secteur. ALTER `tasks` (approvalStatus + 5 colonnes), trigger BEFORE INSERT auto-set, RPC `tasks_pending_my_approval` / `approve_task` / `reject_task`. Côté front : badge "En attente d'approbation", boutons Approuver/Rejeter, modal raison de rejet, section "À valider (N)" en tête de l'onglet tâches.
+
+**5 features court terme S/M** (commits `3560347` / `7873d97` / `7f39c71`)
+- F1 : Pièces jointes (image / fichier / lien) — table `task_attachments` + bucket storage privé + composant `TaskAttachments` dans TaskDetail.
+- F2 : Mentions @user — autocomplete inline dans TaskDetail, parsing au submit, notif aux mentionnés.
+- F3 : Drafts autosave — hook `useFormDraft` AsyncStorage, intégré TaskForm + EventForm.
+- F4 : Récurrence events — `recurrence` enum + génération auto 5-12 instances.
+- F5 : Mode Ne pas déranger — colonnes `quietHours*` + helper `user_in_quiet_hours()` + UI Settings (⚠️ pas encore consommé côté Edge).
+
+**UX audit** (commit `1f3760e`)
+Reaction picker iMessage anchored (measureInWindow), TaskItem priority dot Things 3, LayoutAnimation chips tâches, prop `accessibilityLabel` sur Button.
+
+**Hotfixes test user** (commits `4341c0c` → `bb7fe42`)
+RLS storage avatars, double-tap nav protection, race Realtime tasks doublon, B1 ConfirmModal event-detail, B2 régression Button, I2-sync fallback fetch event, I3 cascade DELETE notifs, I1/I2 notifs RSVP/start/complete tâche, I4/I4-fix RSVP buttons, I5 delete commentaire, B3 détection event supprimé, U1-U5 (filtres simplifiés Vague A précurseur, pop-up déconnexion, lien externe, bio profile, clavier Android), U1bis-U4bis (refactor filtres, sidebar logout, lien court, role centré). Trigger DB rate-limit notifications côté serveur.
+
+### Sessions antérieures (2026-04-22 → 05-03) — résumé
+
+- **Sécurité** : Mode Preview supprimé, RLS Phase 1+2 strict, JWT propagation fix, collision storageKey fix, credentials clear AsyncStorage retirés, leaked password protection activée.
+- **Notifications v1.4** : refonte complète — deep-link tap, long-press menu pour tous, ConfirmModal, SectionList groupé par jour, distinction lue/non-lue, Toast in-app slide-down style WhatsApp. **Bug critique notifs UUID résolu** : avant les `addNotification` côté front généraient des id non-UUID → INSERT échouait silencieusement, 0 notif en DB depuis toujours.
+- **Auto-login** : plus besoin de se reco à chaque ouverture, tolérance erreurs transitoires.
+- **Realtime v1.3** : sync globale tasks INSERT/UPDATE/DELETE, commentaires temps réel, indicateur "X est en train d'écrire", réactions emoji 👍❤️🙏😂 atomiques (RPC `toggle_comment_reaction`).
+- **Sync différée offline v1.3** : pending-queue-store + queue-worker, drain au retour online.
+- **Search + filtres tâches v1.3** : search bar + chips Mes/Données/Catégorie/Priorité/Retard.
+- **Performance** : React.memo TaskItem/NotificationItem/UserListItem, getEventsByDate memoïsé, intercepteur 401 → refresh → retry sur custom Postgrest client.
+- **Audit Salvatore mai 2026** : 47/50 items traités après cette session du 2026-05-05 (~94%). Détail avec ✅/⏭/❌ : `.claude/archive/audit-salvatore-mai-2026.md`. 3 restants = les refactors L listés ci-dessus.
+
+### 🟡 Limites connues
+
+1. **RLS strict pending_approval** : filtre client only, pas de RLS DB stricte (cf. chantier 4 ci-dessus).
+2. **Edge function quiet hours** : F5 livré DB + UI mais Edge consomme pas encore le helper (cf. chantier 2).
+3. **Pas de tests automatisés** : Jest baseline reste à faire (cf. chantier 5).
+4. **`supabase-users-store.ts` doublon** : encore consommé par `admin/database.tsx` (panel legacy). Migration prévue (cf. chantier 5).
 
 ### ⏸️ En attente externe
 
@@ -52,112 +124,49 @@
 
 ---
 
-## 🔥 Priorités prochaines sessions
+## ⚠️ NE PAS FAIRE (rappel critique)
 
-### Court terme S/M (✅ livré 2026-05-05)
-
-Les 5 features court-terme historiques ont été livrées dans la session du 2026-05-05 :
-
-1. ✅ **Pièces jointes aux tâches** (commit `3560347`) — table `task_attachments` + bucket storage `task-attachments`, composant `TaskAttachments` embed dans `TaskDetail`. 3 types : image, fichier, lien externe.
-2. ✅ **Mentions @user** (commit `7f39c71`) — autocomplete inline dans TaskDetail, parsing au submit, notif aux mentionnés.
-3. ✅ **Récurrence d'événements** (commit `7f39c71`) — `recurrence` enum (weekly/biweekly/monthly/yearly) + génération auto de 5-12 instances filles, badge "Événement récurrent" dans event-detail.
-4. ✅ **Drafts / autosave forms** (commit `7873d97`) — hook `useFormDraft` AsyncStorage, intégré dans TaskForm + EventForm. Toast "Brouillon restauré" si revenu après abandon.
-5. ✅ **Mode "ne pas déranger"** (commit `7873d97`) — colonnes `quietHours*` sur users + helper `public.user_in_quiet_hours()`. UI Settings avec toggle + 2 time pickers. ⚠️ Edge function scheduled-reminders + push-notifications NE consomment PAS encore ce helper (à faire en session Edge dédiée).
-
-### Tâches : panel équipe responsables + workflow validation cross-secteur (✅ livré 2026-05-05)
-
-Modélisation Pôle → Secteur → Membre + workflow validation. 6 commits, en 2 vagues.
-
-**Vague B — Panel "vue d'équipe" pour responsables** (livré commits `69ba614` / `4ed8f75` / `6f6bdd8`)
-- Modélisation DB : tables `sectors` + `sector_members`, colonne `user_groups.responsibleId`, helpers `private.is_pole_responsible`, `is_sector_responsible`, `user_team_user_ids`. Cf. migration `vague_b_phase1_sectors_modeling`.
-- Panel admin `/admin/sectors` : CRUD secteurs par pôle, assignation membres, désignation RS/RP.
-- Bouton 👥 dans le Header de l'onglet tâches (admin/RP/RS) → écran `/team-tasks` avec tâches groupées par membre, tri par "tâches en retard" décroissant, filtres status + sheet priorité/retard.
-
-**Vague C — Workflow validation cross-secteur** (livré commit suivant)
-- ALTER `tasks` : `approvalStatus`, `approvedBy`, `approvedAt`, `rejectedBy`, `rejectedAt`, `rejectionReason`.
-- Trigger BEFORE INSERT auto-set : si actor n'a pas autorité sur AU MOINS un assignee (ni admin, ni RP du pôle, ni partage de secteur), status devient `pending_approval`.
-- RPC `tasks_pending_my_approval()` : retourne les tâches que JE peux valider (RS d'un secteur d'un assignee OU RP du pôle).
-- RPC `approve_task` / `reject_task` (avec raison optionnelle) : sécurisées par check authorization côté DB.
-- Côté front : badge "En attente d'approbation" dans TaskDetail, boutons Approuver/Rejeter pour les validateurs, modal raison de rejet, section "À valider (N)" en tête de l'onglet tâches, notifs dédiées (RS reçoit "Tâche à valider", créateur reçoit "Approuvée"/"Rejetée").
-- Filtre côté client : un assigné ne voit pas une tâche `pending_approval` dans sa liste classique tant qu'elle n'est pas approuvée (créateur la voit toujours via `assignedBy`).
-- ⚠️ Limite connue : pas de RLS strict pour cacher `pending_approval` aux assignés au niveau DB (filtre client only). À serrer en session sécurité dédiée si besoin.
-
-### Long terme — gros refactors L effort
-
-Tous demandent une **session dédiée tests device** parce que toucher à ces zones a déjà cassé la prod auparavant (cf. `hard-lessons.md`) ou demande une validation visuelle minutieuse.
-
-| Item | Pourquoi |
-|---|---|
-| **Refactor `auth-store.ts`** (1061 lignes → ~600 avec helper unique) | Code critique, dupliqué 3x sur le lookup user. Mérite tests serrés sur device. |
-| **`expo-secure-store`** pour auth-state + tokens | Sécurité tangible. Limite iOS Keychain ~2KB/clé à valider avant. |
-| **Dédoublonner `users-store` vs `supabase-users-store`** | `admin/database.tsx` consomme le legacy avec un mock data flag + 5 méthodes (createUser, updateUser, deleteUser…) qui n'existent pas dans `users-store`. Migration demande soit d'enrichir users-store, soit de refactor admin/database.tsx. |
-| **`@gorhom/bottom-sheet`** | Refactor UI sur 3 composants (TaskDetail Modal, reaction picker, ParticipantsStack). TaskDetail est central, casser l'animation modal = casser l'UX la plus utilisée. Tests visuels iOS+Android requis. |
-| **Tests Jest baseline** | Setup environment Jest + mocks Zustand/Supabase/AsyncStorage + écriture tests : facilement 4-6h pour faire ça bien. |
-| **EAS Build production** | Active push remote, Quick Actions (#10 audit features), Widgets (#13 audit features). |
-| **Edge function quiet hours** | scheduled-reminders + push-notifications doivent appeler `public.user_in_quiet_hours(target_user_id)` avant de fire un push. Sinon F5 (livré 2026-05-05) ne bloque pas les notifs côté serveur. |
-
-### Compte démo & App Store
-
-- Compte démo + App Review Notes à préparer pour soumission App Store / Play Store
-- Bundle IDs prêts : `ch.mysteriaevent.intranet` (iOS + Android)
-- EAS project configuré : `b2bdb0b9-18cf-40a6-be2c-c7dc1de3333c`
-
-### 🎯 Idées features futures (à valider avec l'asso)
-
-- **Catégorie privée pour events** (visible seulement par membres listés) — partiellement implémentable via `restrictedAccess` mais pas exposé pour events
-- **Calendar export .ics** (pour importer dans Google/Apple Calendar natif)
-- **Dashboard stats admin** plus poussé
-- **Recherche globale cross-modules** (tâches + events + Bible + users dans une seule barre style Slack `Cmd+K`)
-- **Indicateur "vu"/"reçu" sur les notifs** (style WhatsApp)
-- **Onboarding contextuel** (tooltips premier usage — long-press = supprimer caché actuellement)
-- **Quick filters sauvegardés** sur Tâches (les chips combinables doivent être ré-appliqués à chaque session)
-
----
-
-## ⚠️ NE PAS FAIRE (rappel)
-
-Liste exhaustive dans `hard-lessons.md`. Top 5 critique :
+Liste exhaustive dans `hard-lessons.md`. Top critiques :
 
 - Réintroduire un Mode Preview / fallback auto-loggué (§5.1)
 - Faire un INSERT auto-create dans le flow login (§5.4)
 - Appeler `reinitializeSupabase()` dans un retry path (§5.3)
 - Mettre des policies RLS avec rôle `anon`
+- Storage RLS `TO PUBLIC` — ne s'applique pas à `authenticated` sur storage.objects (§5.23). TOUJOURS `TO authenticated` explicite.
+- Race Realtime onInsert ↔ set local : dédup obligatoire des deux côtés (§5.24)
 - Chaîner deux `ConfirmModal` dont le 2ème dépend du state du 1er (§5.18)
-
----
-
-## 🛠️ Commits récents (2026-05-02 → 03)
-
-Le git log est la source de vérité primaire. Ordre approximatif (les hashes peuvent diverger après push) :
-
-| Commit | Sujet |
-|---|---|
-| `bb35a0f` | docs: setup CLAUDE.md and sync project state |
-| `9464e25` | fix: audit Salvatore (BUG-002/003/005/006 + SEC-004 + BUG-004) |
-| `6736612` | docs: explain why supabase client is custom |
-| `56472d9` | feat: notifications refonte + auto-login fix + audit V1 polish |
-| `2ae4434` | fix: V2 audit - bugs réels + perf + types + UX modern |
-| `f091bef` | fix: V3a audit - bugs S/M + UX polish + dette tech ciblée |
-| `89e4a7f` | fix: V3b - intercepteur 401 + cleanup mort code |
-| `e3cb09a` | fix: BUG CRITIQUE notifs UUID + offline + UX Toast création tâche/event |
-| `d79d49c` | feat: Toast custom avec dark/light mode + Alert validation forms en Toast |
-| `0649d1a` | chore: backup before CLAUDE.md modularization |
+- IDs côté client pour colonnes `uuid` Postgres : TOUJOURS `uuid v4`, jamais `Date.now()+Math.random()` (§5.22)
 
 ---
 
 ## 📞 Contacts & Ressources
 
 - **GitHub** : [github.com/MortyStream/mysteria-app](https://github.com/MortyStream/mysteria-app)
-- **Supabase Dashboard** : project `toefttzpdexugvfdqhfg` (eu-west-1)
-- **Resend** : compte Kévin (en attente DNS)
+- **Supabase Dashboard** : project `toefttzpdexugvfdqhfg` (eu-west-1, ACTIVE_HEALTHY)
+- **Resend** : compte Kévin (DNS en attente — à check régulièrement)
 - **EAS** : project `b2bdb0b9-18cf-40a6-be2c-c7dc1de3333c` (configuré dans `expo/app.json`)
 - **Owner Expo** : `mortystream`
 - **Bundle IDs** : `ch.mysteriaevent.intranet` (iOS + Android)
 
 ### Membres clés équipe
 
-- **Kévin Perret** (admin principal, dev référent)
-- **Syndell Da Silva** (admin, testeuse iPhone — feedback UX précis)
-- **Luana Roger** (admin, testeuse — propose features)
-- **Salvatore Scuderi** (admin, audit Claude externe mai 2026), **Chloé Debons** (admin)
-- **Yann Crittin** (admin, testeur)
+- **Kévin Perret** — admin principal, dev référent, président asso
+- **Syndell Da Silva** — admin, secrétaire, testeuse iPhone (feedback UX précis)
+- **Luana Roger** — admin, comité, testeuse, propose features
+- **Salvatore Scuderi** — admin, comité, audit Claude externe mai 2026
+- **Chloé Debons** — admin, vice-présidente
+- **Loïc** — admin, trésorier
+- **Yann Crittin** — admin, testeur
+- **Elie** — admin, Pôle technique
+- **Emilie** — `responsable_pole` Pôle Artistique (1er RP désigné en seed Vague B)
+- **Bastien / Jennifer / Sébastien / Joël** — `responsable_secteur` (Pôle Artistique / Pôle technique)
+- **Membres lambda** : Anne-Cécile, Ed, Jérémy, Manon, Mélissa, Sacha, Stéphanie
+
+### Architecture rappelée (cf. `.claude/architecture.md` pour le détail)
+
+- React Native 0.81 / Expo SDK 54 / Expo Router file-based
+- Zustand persist + AsyncStorage côté front
+- Supabase Postgres + Auth + Storage + Realtime + 2 Edge Functions Deno
+- Custom Supabase client dans `expo/utils/supabase.js` avec cache JWT mémoire (cf. Hard Lesson §5.2)
+- Conventions DB : colonnes `camelCase` (toujours quoter `"createdAt"` etc.)
+- Hiérarchie organisationnelle : Comité → Pôles (5 fixes) → Secteurs (modulaires) → Membres
